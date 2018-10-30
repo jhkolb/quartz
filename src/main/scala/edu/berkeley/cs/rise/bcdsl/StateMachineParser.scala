@@ -4,62 +4,71 @@ import scala.util.parsing.combinator.JavaTokenParsers
 
 object StateMachineParser extends JavaTokenParsers {
   def dataTypeDecl: Parser[DataType] = "Identity" ^^ { _ => Identity } |
-      "Int" ^^ { _ => Int } |
-      "String" ^^ { _ => String }
-      "Timestamp" ^^ { _ => Timestamp }
-      "Timespan" ^^ { _ => Timespan }
-      "Bool" ^^ { _ => Bool }
+      "Int" ^^^ Int |
+      "String" ^^^ String
+      "Timestamp" ^^^ Timestamp
+      "Timespan" ^^^ Timespan
+      "Bool" ^^^ Bool
 
   def fieldDecl: Parser[Field] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Field(name, ty) }
 
   def fieldList: Parser[Seq[Field]] = "data" ~ "{" ~> rep(fieldDecl) <~ "}"
 
-  def valueDecl: Parser[SimpleValue] = "now" ^^ { _ => Now } |
-      "true" ^^ { _ => BoolConst(true) } |
-      "false" ^^ { _ => BoolConst(false) } |
-      wholeNumber ^^ { s => IntConst(s.toInt) } |
+  def valueDecl: Parser[SimpleValue] = "now" ^^^ Now |
+      "true" ^^^ BoolConst(true) |
+      "false" ^^^ BoolConst(false) |
+      wholeNumber ^^  { s => IntConst(s.toInt) } |
       stringLiteral ^^ StringLiteral |
       ident ^^ FieldRef
 
-  def logicalOp: Parser[LogicalOperator] = "==" ^^ { _ => Equal } |
-      "!=" ^^ { _ => NotEqual } |
-      "<" ^^ { _ => LessThan} |
-      "<=" ^^ { _ => LessThanOrEqual } |
-      ">" ^^ { _ => GreaterThan } |
-      ">=" ^^ { _ => GreaterThanOrEqual } |
-      "&&" ^^ { _ => And } |
-      "||" ^^ { _ => Or }
+  def arithmeticOp1: Parser[ArithmeticOperator] = "*" ^^^ Multiply | "/" ^^^ Divide
 
-  def arithmeticOp: Parser[ArithmeticOperator] = "+" ^^ { _ => Plus } |
-      "-" ^^ { _ => Minus } |
-      "*" ^^ { _ => Multiply } |
-      "/" ^^ { _ => Divide }
+  def arithmeticOp2: Parser[ArithmeticOperator] = "+" ^^^ Plus | "-" ^^^ Minus
 
-  def timespanConst: Parser[Timespan] = "Second" ^^ { _ => Second } |
-      "Minute" ^^ { _ => Minute } |
-      "Hour" ^^ { _ => Hour } |
-      "Day" ^^ { _ => Day } |
-      "Week" ^^ { _ => Week }
+  def logicalOp1: Parser[LogicalOperator] = "&&" ^^^ And | "||" ^^^ Or
 
-  def expression: Parser[Expression] =
-      expression ~ logicalOp ~ expression ^^ { case left ~ op ~ right => LogicalExpression(left, op, right) } |
-      expression ~ arithmeticOp ~ expression ^^ { case left ~ op ~ right => ArithmeticExpression(left, op, right) } |
-      valueDecl ^^ ValueExpression |
-      "(" ~> expression <~ ")"
+  def logicalOp2: Parser[LogicalOperator] = "==" ^^^ Equal |
+    "!=" ^^^ NotEqual |
+    "<" ^^^ LessThan |
+    "<=" ^^^ LessThanOrEqual |
+    ">" ^^^ GreaterThan |
+    ">=" ^^^  GreaterThanOrEqual
+  def timespanConst: Parser[Timespan] = "Second" ^^^ Second |
+      "Minute" ^^^ Minute |
+      "Hour" ^^^ Hour |
+      "Day" ^^^ Day |
+      "Week" ^^^ Week
 
-  def authExpression: Parser[AuthExpression] = ident ^^ AuthValue |
-      authExpression ~ "and" ~ authExpression ^^ { case left ~ "and" ~ right => AuthConjunction(left, right) } |
-      authExpression ~ "or" ~ authExpression ^^ { case left ~ "or" ~ right => AuthDisjunction(left, right) }
-      "(" ~> authExpression <~ ")"
+  def factor: Parser[Expression] = valueDecl ^^ ValueExpression | "(" ~> arithmeticExpression <~ ")"
+
+  def term: Parser[Expression] = chainl1(factor, arithmeticOp1 ^^
+      (op => (left: Expression, right: Expression) => ArithmeticExpression(left, op, right)))
+
+  def arithmeticExpression: Parser[Expression] = chainl1(term, arithmeticOp2 ^^
+      (op => (left: Expression, right: Expression) => ArithmeticExpression(left, op, right)))
+
+  def atom: Parser[Expression] = valueDecl ^^ ValueExpression | "(" ~> logicalExpression <~ ")"
+
+  def clause: Parser[Expression] = chainl1(atom, logicalOp1 ^^
+      (op => (left: Expression, right: Expression) => LogicalExpression(left, op, right)))
+
+  def logicalExpression: Parser[Expression] = chainl1(clause, logicalOp2 ^^
+      (op => (left: Expression, right: Expression) => LogicalExpression(left, op, right)))
+
+  def authClause: Parser[AuthDecl] = ident ^^ AuthValue | "(" ~> authDecl <~ ")"
+
+  def authExpression: Parser[AuthDecl] = chainl1(authClause, logicalOp2 ^^
+      (op => (left: AuthDecl, right: AuthDecl) => AuthCombination(left, op, right)))
 
   def stateChange: Parser[(Option[String], String)] = opt(ident) ~ "->" ~ ident ^^
       { case origin ~ "->" ~ destination => (origin, destination) }
 
-  def authDecl: Parser[AuthExpression] = "authorized" ~ "[" ~> authExpression <~ "]"
+  def authDecl: Parser[AuthDecl] = "authorized" ~ "[" ~> authExpression <~ "]"
 
-  def guardDecl: Parser[Expression] = "requires" ~ "[" ~> expression <~ "]"
+  def guardDecl: Parser[Expression] = "requires" ~ "[" ~> logicalExpression <~ "]"
 
-  def assignment: Parser[Assignment] = ident ~ "=" ~ expression ^^ { case name ~ "=" ~ expr => Assignment(name, expr) }
+  def assignment: Parser[Assignment] = ident ~ "=" ~ (arithmeticExpression | logicalExpression) ^^
+      { case name ~ "=" ~ expr => Assignment(name, expr) }
 
   def transitionBody: Parser[Seq[Assignment]] = "{" ~> rep(assignment) <~ "}"
 

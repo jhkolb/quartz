@@ -15,7 +15,9 @@ case class StringLiteral(value: String) extends SimpleValue
 case object Now  extends SimpleValue
 case class BoolConst(value: Boolean) extends SimpleValue
 
-sealed trait LogicalOperator
+sealed trait BinaryOperator
+
+sealed trait LogicalOperator extends BinaryOperator
 case object Equal extends LogicalOperator
 case object NotEqual extends LogicalOperator
 case object LessThan extends LogicalOperator
@@ -25,7 +27,7 @@ case object GreaterThanOrEqual extends LogicalOperator
 case object And extends LogicalOperator
 case object Or extends LogicalOperator
 
-sealed trait ArithmeticOperator
+sealed trait ArithmeticOperator extends BinaryOperator
 case object Plus extends ArithmeticOperator
 case object Minus extends ArithmeticOperator
 case object Multiply extends ArithmeticOperator
@@ -43,7 +45,6 @@ case class ValueExpression(value: SimpleValue) extends Expression
 case class LogicalExpression(left: Expression, operator: LogicalOperator, right: Expression) extends Expression
 case class ArithmeticExpression(left: Expression, operator: ArithmeticOperator, right: Expression) extends Expression
 
-sealed trait AuthExpression
-case class AuthValue(name: String) extends AuthExpression
-case class AuthConjunction(left: AuthExpression, right: AuthExpression) extends AuthExpression
-case class AuthDisjunction(left: AuthExpression, right: AuthExpression) extends AuthExpression
+sealed trait AuthDecl
+case class AuthValue(name: String) extends AuthDecl
+case class AuthCombination(left: AuthDecl, operator: LogicalOperator, right: AuthDecl) extends AuthDecl
