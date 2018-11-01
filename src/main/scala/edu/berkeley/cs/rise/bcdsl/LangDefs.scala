@@ -28,17 +28,19 @@ case class StringLiteral(value: String) extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(String)
 }
 
-case object Now  extends SimpleValue {
+case object Now extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Timestamp)
+}
+
+case object Sender extends SimpleValue {
+  override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Identity)
 }
 
 case class BoolConst(value: Boolean) extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Bool)
 }
 
-sealed trait BinaryOperator
-
-sealed trait LogicalOperator extends BinaryOperator
+sealed trait LogicalOperator
 case object Equal extends LogicalOperator
 case object NotEqual extends LogicalOperator
 case object LessThan extends LogicalOperator
@@ -48,13 +50,13 @@ case object GreaterThanOrEqual extends LogicalOperator
 case object And extends LogicalOperator
 case object Or extends LogicalOperator
 
-sealed trait ArithmeticOperator extends BinaryOperator
+sealed trait ArithmeticOperator
 case object Plus extends ArithmeticOperator
 case object Minus extends ArithmeticOperator
 case object Multiply extends ArithmeticOperator
 case object Divide extends ArithmeticOperator
 
-sealed trait Timespan extends Typed {
+sealed trait Timespan extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Timespan)
 }
 case object Second extends Timespan

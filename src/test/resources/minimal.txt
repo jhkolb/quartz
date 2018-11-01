@@ -1,0 +1,16 @@
+data {
+  foo: Int
+  bar: String
+  baz: Identity
+}
+
+configured -> running
+authorized [ zz ]
+requires [ x < 4 && (z < 70 || y > 91) ] {}
+
+running -> stopped
+authorized [ admin ]
+requires [ true == false ] {
+   powerLevel = "Over 9000"
+   answer = 42
+}

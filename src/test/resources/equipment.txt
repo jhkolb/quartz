@@ -1,0 +1,26 @@
+data {
+  Buyer: Identity
+  Vendor: Identity
+  WarrantyStart: Timestamp
+}
+
+-> ordered authorized [ Vendor ] {
+  Vendor = sender
+}
+
+ordered -> shipped authorized [ Vendor ]
+
+shipped -> delivered authorized [ Vendor && Buyer ] {
+    WarrantyStart = now
+}
+
+delivered -> vendorQualified authorized [ Vendor ]
+
+vendorQualified -> accepted authorized [ Buyer ]
+
+accepted -> warrantyClaimed authorized [ Buyer ]
+    requires [ now - WarrantyStart < 365 * days ]
+
+warrantyClaimed -> degraded authorized [ Vendor && Buyer ]
+
+degraded -> accepted authorized [ Vendor && Buyer ]
