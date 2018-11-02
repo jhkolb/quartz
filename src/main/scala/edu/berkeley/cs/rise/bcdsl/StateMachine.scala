@@ -23,12 +23,13 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
 
   def toSolidity: String = {
     val builder = new StringBuilder()
-    builder.append("pragma solidity ^0.4.21;\n")
-    builder.append("Contract AutoGen {\n")
+    builder.append("pragma solidity ^0.4.21;\n\n")
+    builder.append("contract AutoGen {\n")
 
     builder.append("enum State {\n")
-    states foreach { state => builder.append(s"  $state,\n")}
-    builder.append("}\n")
+    builder.append("  ")
+    builder.append(states.mkString(",\n  "))
+    builder.append("\n}\n")
 
     fields foreach { f =>
       f.ty match {
@@ -39,12 +40,12 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
         case Bool => builder.append("bool")
         case Timespan => builder.append("uint")
       }
-      builder.append(s" public ${f.name};\n\n")
+      builder.append(s" public ${f.name};\n")
     }
-    builder.append("State public currentState;\n")
+    builder.append("State public currentState;\n\n")
 
     builder.append("constructor() public {\n")
-    builder.append(s"  currentState = ${initialTransition.destination};\n")
+    builder.append(s"  currentState = State.${initialTransition.destination};\n")
     initialTransition.body match {
       case None =>  ()
       case Some(assignments) => assignments foreach { assignment =>
@@ -55,7 +56,7 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
 
     standardTransitions foreach { transition =>
       builder.append(s"function ${transition.origin.get}_to_${transition.destination}() public {\n")
-      builder.append(s"  currentState = ${transition.destination};\n")
+      builder.append(s"  currentState = State.${transition.destination};\n")
       transition.body match {
         case None => ()
         case Some(assignments) => assignments foreach { assignment =>
@@ -64,6 +65,7 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
       }
       builder.append("}\n\n")
     }
+    builder.append("}")
 
     builder.toString
   }
