@@ -15,20 +15,36 @@ object Solidity {
         case Minute => builder.append("minutes")
         case Hour => builder.append("hours")
         case Day => builder.append("days")
+        case Week => builder.append("weeks")
       }
 
       case ArithmeticExpression(left, operator, right) =>
-        builder.append(s"(${writeExpression(left)})")
+        left match {
+          case ValueExpression(_) => builder.append(writeExpression(left))
+          case _ => builder.append(s"(${writeExpression(left)})")
+        }
+
         operator match {
           case Plus => builder.append (" + ")
           case Minus => builder.append (" - ")
-          case Multiply => builder.append (" * ")
+          case Multiply => right match {
+            case ValueExpression(Second) | ValueExpression(Minute) |
+                 ValueExpression(Hour) | ValueExpression(Day) | ValueExpression(Week) => builder.append(" ")
+            case _ => builder.append(" * ")
+          }
           case Divide => builder.append (" / ")
         }
-        builder.append(s"(${writeExpression(right)})")
+
+        right match {
+          case ValueExpression(_) => builder.append(writeExpression(right))
+          case _ => builder.append(s"(${writeExpression(right)})")
+        }
 
       case LogicalExpression(left, operator, right) =>
-        builder.append(s"(${writeExpression(left)}")
+        left match {
+          case ValueExpression(_) => builder.append(writeExpression(left))
+          case _ => builder.append(s"(${writeExpression(left)})")
+        }
         operator match {
           case LessThan => builder.append(" < ")
           case LessThanOrEqual => builder.append(" <= ")
@@ -36,8 +52,13 @@ object Solidity {
           case NotEqual => builder.append(" != ")
           case GreaterThanOrEqual => builder.append(" >= ")
           case GreaterThan => builder.append(" > ")
+          case And => builder.append(" && ")
+          case Or => builder.append(" || ")
         }
-        builder.append(s"(${writeExpression(right)})")
+        right match {
+          case ValueExpression(_) => builder.append(writeExpression(right))
+          case _ => builder.append(s"(${writeExpression(right)})")
+        }
     }
 
     builder.toString()

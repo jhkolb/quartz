@@ -8,7 +8,7 @@ case class Transition(origin: Option[String], destination: String, authorized: O
                       guard: Option[Expression], body: Option[Seq[Assignment]])
 
 case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
-  lazy val states: Set[String] = transitions.foldLeft(Set.empty[String]) { (states, transition) =>
+  val states: Set[String] = transitions.foldLeft(Set.empty[String]) { (states, transition) =>
     transition.origin match {
       case None => states + transition.destination
       case Some(o) => states + (o, transition.destination)
@@ -56,7 +56,14 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
 
     standardTransitions foreach { transition =>
       builder.append(s"function ${transition.origin.get}_to_${transition.destination}() public {\n")
+
+      transition.guard match {
+        case None => ()
+        case Some(g) => builder.append(s"  require(${Solidity.writeExpression(g)});\n")
+      }
+
       builder.append(s"  currentState = State.${transition.destination};\n")
+
       transition.body match {
         case None => ()
         case Some(assignments) => assignments foreach { assignment =>
