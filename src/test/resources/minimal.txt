@@ -4,6 +4,8 @@ data {
   baz: Identity
 }
 
+->configured
+
 configured -> running
 authorized [ zz ]
 requires [ x < 4 && (z < 70 || y > 91) ] {}

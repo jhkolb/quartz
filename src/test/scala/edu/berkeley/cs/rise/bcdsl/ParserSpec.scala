@@ -9,7 +9,8 @@ class ParserSpec extends FunSuite {
     val input = Source.fromInputStream(getClass.getClassLoader.getResourceAsStream(name)).mkString
     StateMachineParser.parseAll(StateMachineParser.stateMachine, input) match {
       case StateMachineParser.Failure(msg, remaining) =>
-        fail(s"Syntax Error: $msg at input ${remaining.first.toString}")
+        val nextInput = remaining.source.toString.substring(remaining.offset).takeWhile(_ != '\n')
+        fail(s"Syntax Error: $msg at ${remaining.pos.toString} ($nextInput)")
       case StateMachineParser.Error(msg, _) =>
         fail(s"Parser Error: $msg")
       case StateMachineParser.Success(stateMachine, _) =>
@@ -18,10 +19,16 @@ class ParserSpec extends FunSuite {
   }
 
   test("Parsing a minimal state machine") {
-    println(parseFile("minimal.txt"))
+    val ast = parseFile("minimal.txt")
+    println(ast)
+    println("------------")
+    println(ast.toSolidity)
   }
 
   test("Parsing equipment warranty state machine") {
-    println(parseFile("equipment.txt"))
+    val ast = parseFile("equipment.txt")
+    println(ast)
+    println("------------")
+    println(ast.toSolidity)
   }
 }
