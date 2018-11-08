@@ -1,7 +1,26 @@
 package edu.berkeley.cs.rise.bcdsl
 
 object Solidity {
-  def writeExpression(expression: Expression): String = {
+  private val INDENTATION_STR: String = "    "
+
+  private def writeField(field: Field): String = {
+    val builder = new StringBuilder()
+
+    builder.append(INDENTATION_STR)
+    field.ty match {
+      case Identity => builder.append("address")
+      case Int => builder.append("int")
+      case String => builder.append("bytes32")
+      case Timestamp => builder.append("uint")
+      case Bool => builder.append("bool")
+      case Timespan => builder.append("uint")
+    }
+    builder.append(s" public ${field.name};\n")
+
+    builder.toString()
+  }
+
+  private def writeExpression(expression: Expression): String = {
     val builder = new StringBuilder()
     expression match {
       case ValueExpression(value) => value match {
@@ -25,14 +44,14 @@ object Solidity {
         }
 
         operator match {
-          case Plus => builder.append (" + ")
-          case Minus => builder.append (" - ")
+          case Plus => builder.append(" + ")
+          case Minus => builder.append(" - ")
           case Multiply => right match {
             case ValueExpression(Second) | ValueExpression(Minute) |
                  ValueExpression(Hour) | ValueExpression(Day) | ValueExpression(Week) => builder.append(" ")
             case _ => builder.append(" * ")
           }
-          case Divide => builder.append (" / ")
+          case Divide => builder.append(" / ")
         }
 
         right match {
@@ -62,5 +81,64 @@ object Solidity {
     }
 
     builder.toString()
+  }
+
+  private def writeTransition(transition: Transition): String = {
+    val builder = new StringBuilder()
+
+    builder.append(INDENTATION_STR)
+    transition.origin match {
+      case None => builder.append("constructor() public {\n")
+      case Some(o) => builder.append(s"function ${o}_to_${transition.destination}() public {\n")
+    }
+
+    transition.guard match {
+      case None => ()
+      case Some(g) =>
+        builder.append(INDENTATION_STR * 2)
+        builder.append(s"require(${writeExpression(g)});\n")
+    }
+    builder.append(INDENTATION_STR * 2)
+    builder.append(s"currentState = State.${transition.destination};\n")
+
+    transition.body match {
+      case None => ()
+      case Some(assignments) => assignments foreach { assignment =>
+        builder.append(INDENTATION_STR * 2)
+        builder.append(s"${assignment.name} = ${writeExpression(assignment.value)};\n")
+      }
+    }
+    builder.append(INDENTATION_STR)
+    builder.append("}\n\n")
+
+    builder.toString()
+  }
+
+  def writeStateMachine(stateMachine: StateMachine): String = {
+    val builder = new StringBuilder()
+    builder.append("pragma solidity ^0.4.21;\n\n")
+    builder.append("contract AutoGen {\n")
+
+    val states: Set[String] = stateMachine.transitions.foldLeft(Set.empty[String]) { (states, transition) =>
+      transition.origin match {
+        case None => states + transition.destination
+        case Some(o) => states + (o, transition.destination)
+      }
+    }
+    builder.append(INDENTATION_STR)
+    builder.append("enum State {\n")
+    builder.append(INDENTATION_STR * 2)
+    builder.append(states.mkString(",\n" + (INDENTATION_STR * 2)))
+    builder.append("\n")
+    builder.append(INDENTATION_STR + "}\n")
+
+    stateMachine.fields foreach { f => builder.append(writeField(f)) }
+    builder.append(INDENTATION_STR)
+    builder.append("State public currentState;\n\n")
+
+    stateMachine.transitions foreach { t => builder.append(writeTransition(t)) }
+
+    builder.append("}")
+    builder.toString
   }
 }
