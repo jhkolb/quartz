@@ -2,6 +2,10 @@ data {
   foo: Int
   bar: String
   baz: Identity
+  zz: Identity
+  admin: Identity
+  powerLevel: String
+  answer: String
 }
 
 ->configured

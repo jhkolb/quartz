@@ -22,13 +22,19 @@ class ParserSpec extends FunSuite {
     val stateMachine = parseFile("minimal.txt")
     println(stateMachine)
     println("------------")
-    println(Solidity.writeStateMachine(stateMachine))
+    stateMachine.validate() match {
+      case None => println(Solidity.writeStateMachine(stateMachine))
+      case Some(err) => println(err)
+    }
   }
 
   test("Parsing equipment warranty state machine") {
     val stateMachine = parseFile("equipment.txt")
     println(stateMachine)
     println("------------")
-    println(Solidity.writeStateMachine(stateMachine))
+    stateMachine.validate() match {
+      case None => println(Solidity.writeStateMachine(stateMachine))
+      case Some(err) => println(err)
+    }
   }
 }
