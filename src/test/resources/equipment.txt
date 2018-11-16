@@ -4,7 +4,7 @@ data {
   WarrantyStart: Timestamp
 }
 
--> ordered authorized [ Vendor ] {
+-> ordered {
   Vendor = sender
 }
 

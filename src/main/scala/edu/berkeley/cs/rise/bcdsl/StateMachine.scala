@@ -19,6 +19,10 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
       return Some("State machine has multiple initial transitions")
     }
 
+    // The initial transition cannot have an authorization requirement
+    if (initialTransitions.head.authorized.isDefined) {
+      return Some("Initial transition cannot have an authorization restriction")
+    }
     val initialState = initialTransitions.head.destination
     val allStates = transitions.foldLeft(Set.empty[String]) { (states, transition) =>
       transition.origin match {
@@ -42,7 +46,7 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
       // Check that authorization clause does not reference undefined identities
       transition.authorized match {
         case Some(authDecl) =>
-          val ids = extractIdentities(authDecl)
+          val ids = authDecl.extractIdentities
           val unknownIds = ids.diff(principals)
           if (unknownIds.nonEmpty) {
             return Some(s"Transition ${transition.name} references unknown identities: ${unknownIds.mkString(", ")}")
@@ -96,11 +100,5 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
         neighbors.diff(newVisited).foldLeft(newVisited) { (currentVisited, neighbor) =>
           currentVisited ++ visit(neighbor, adjacencyList, currentVisited)
         }
-    }
-
-  private def extractIdentities(authDecl: AuthDecl): Set[String] =
-    authDecl match {
-      case AuthValue(name) => Set(name)
-      case AuthCombination(left, _, right) => extractIdentities(left) ++ extractIdentities(right)
     }
 }

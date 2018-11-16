@@ -98,6 +98,36 @@ object Solidity {
         builder.append(INDENTATION_STR * 2)
         builder.append(s"require(${writeExpression(g)});\n")
     }
+
+    transition.authorized match {
+      case None => ()
+      case Some(authDecl) =>
+        val identities = authDecl.extractIdentities
+        if (identities.size == 1) {
+          builder.append(INDENTATION_STR * 2)
+          builder.append(s"require(msg.sender == ${identities.head});\n")
+        } else {
+          builder.append(INDENTATION_STR * 2)
+          builder.append(s"if (msg.sender == ${identities.head}) {\n")
+          builder.append(INDENTATION_STR * 3)
+          builder.append(s"${writeApprovalVar(transition, identities.head)} = true;\n")
+          builder.append(INDENTATION_STR * 2)
+          builder.append("}\n")
+
+          identities.tail.foreach { id =>
+            builder.append(INDENTATION_STR * 2)
+            builder.append(s"else if (msg.sender == $id) {\n")
+            builder.append(INDENTATION_STR * 3)
+            builder.append(s"${writeApprovalVar(transition, id)} = true;\n")
+            builder.append(INDENTATION_STR * 2)
+            builder.append("}\n")
+          }
+
+          builder.append(INDENTATION_STR * 2)
+          builder.append(s"require(${writeAuthClause(transition, authDecl)});\n")
+        }
+    }
+
     builder.append(INDENTATION_STR * 2)
     builder.append(s"currentState = State.${transition.destination};\n")
 
@@ -113,6 +143,54 @@ object Solidity {
 
     builder.toString()
   }
+
+  def writeAuthorizationFields(machine: StateMachine): String = {
+    val builder = new StringBuilder()
+
+    machine.transitions.foreach { transition =>
+      transition.authorized match {
+        case Some(authDecl) =>
+          val identities = authDecl.extractIdentities
+          if (identities.size > 1) {
+            identities.foreach { id =>
+              builder.append(INDENTATION_STR)
+              builder.append(s"bool private ${writeApprovalVar(transition, id)};\n")
+            }
+          }
+        case None => ()
+      }
+    }
+
+    builder.toString()
+  }
+
+  def writeAuthClause(transition: Transition, authDecl: AuthDecl): String =
+    authDecl match {
+      case AuthValue(name) => name
+      case AuthCombination(left, operator, right) =>
+        val builder = new StringBuilder()
+        left match {
+          case AuthValue(name) => builder.append(writeApprovalVar(transition, name))
+          case authCombo => builder.append(s"(${writeAuthClause(transition, authCombo)})")
+        }
+        operator match {
+          case And => builder.append(" && ")
+          case Or => builder.append(" || ")
+          // This should never happen
+          case _ => throw new UnsupportedOperationException(s"Operator $operator cannot be used in authorization logic")
+        }
+        right match {
+          case AuthValue(name) => builder.append(writeApprovalVar(transition, name))
+          case authCombo => builder.append(s"(${writeAuthClause(transition, authCombo)})")
+        }
+
+        builder.toString()
+    }
+
+  def writeApprovalVar(transition: Transition, principal: String): String =
+    // Validation ensures that transition must have an origin
+    // Only non-initial transitions can have authorization restrictions
+    s"${transition.origin.get}To${transition.destination}_${principal}Approved"
 
   def writeStateMachine(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
@@ -134,7 +212,9 @@ object Solidity {
 
     stateMachine.fields foreach { f => builder.append(writeField(f)) }
     builder.append(INDENTATION_STR)
-    builder.append("State public currentState;\n\n")
+    builder.append("State public currentState;\n")
+    builder.append(writeAuthorizationFields(stateMachine))
+    builder.append("\n")
 
     stateMachine.transitions foreach { t => builder.append(writeTransition(t)) }
 
