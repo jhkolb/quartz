@@ -4,7 +4,7 @@ data {
   baz: Identity
   zz: Identity
   admin: Identity
-  powerLevel: String
+  message: String
   answer: String
 }
 
@@ -17,6 +17,6 @@ requires [ x < 4 && (z < 70 || y > 91) ] {}
 running -> stopped
 authorized [ admin ]
 requires [ true == false ] {
-   powerLevel = "Over 9000"
+   message = "Hello, World!"
    answer = 42
 }

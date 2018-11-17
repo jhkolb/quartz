@@ -89,8 +89,12 @@ object Solidity {
     builder.append(INDENTATION_STR)
     transition.origin match {
       case None => builder.append("constructor() public {\n")
-      case Some(o) => builder.append(s"function ${o}_to_${transition.destination}() public {\n")
+      case Some(o) =>
+        builder.append(s"function ${o}_to_${transition.destination}() public {\n")
+        builder.append(INDENTATION_STR * 2)
+        builder.append(s"require(currentState == State.$o);\n")
     }
+
 
     transition.guard match {
       case None => ()
