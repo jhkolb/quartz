@@ -16,9 +16,9 @@ object StateMachineParser extends JavaTokenParsers {
     "Timespan" ^^^ Timespan |
     "Bool" ^^^ Bool
 
-  def fieldDecl: Parser[Field] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Field(name, ty) }
+  def variableDecl: Parser[Variable] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Variable(name, ty) }
 
-  def fieldList: Parser[Seq[Field]] = "data" ~ "{" ~> rep(fieldDecl) <~ "}"
+  def fieldList: Parser[Seq[Variable]] = "data" ~ "{" ~> rep(variableDecl) <~ "}"
 
   def valueDecl: Parser[SimpleValue] = "now" ^^^ Now |
     "sender" ^^^ Sender |
@@ -66,7 +66,12 @@ object StateMachineParser extends JavaTokenParsers {
   def authExpression: Parser[AuthDecl] = chainl1(authClause, booleanOp ^^
     (op => (left: AuthDecl, right: AuthDecl) => AuthCombination(left, op, right)))
 
-  def stateChange: Parser[(Option[String], String)] = opt(ident) ~ "->" ~ ident ^^ { case origin ~ "->" ~ destination => (origin, destination) }
+  def parameterList: Parser[Seq[Variable]] = "(" ~> rep1sep(variableDecl, ",") <~ ")"
+
+  def stateChange: Parser[(Option[String], Option[Seq[Variable]], String)] =
+    opt(ident) ~ "->" ~ opt(parameterList) ~ ident ^^ { case origin ~ "->" ~ parameters ~ destination =>
+      (origin, parameters, destination)
+    }
 
   def authAnnotation: Parser[AuthDecl] = "authorized" ~ "[" ~> authExpression <~ "]"
 
@@ -76,7 +81,9 @@ object StateMachineParser extends JavaTokenParsers {
 
   def transitionBody: Parser[Seq[Assignment]] = "{" ~> rep(assignment) <~ "}"
 
-  def transition: Parser[Transition] = stateChange ~ opt(authAnnotation) ~ opt(guardAnnotation) ~ opt(transitionBody) ^^ { case (origin, destination) ~ auth ~ guard ~ body => Transition(origin, destination, auth, guard, body) }
+  def transition: Parser[Transition] = stateChange ~ opt(authAnnotation) ~ opt(guardAnnotation) ~ opt(transitionBody) ^^ { case (origin, parameters, destination) ~ auth ~ guard ~ body =>
+    Transition(origin, destination, parameters, auth, guard, body)
+  }
 
   def stateMachine: Parser[StateMachine] = fieldList ~ rep(transition) ^^ { case fields ~ transitions => StateMachine(fields, transitions) }
 }

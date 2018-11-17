@@ -37,4 +37,14 @@ class ParserSpec extends FunSuite {
       case Some(err) => println(err)
     }
   }
+
+  test("Parsing auction state machine") {
+    val stateMachine = parseFile("auction.txt")
+    println(stateMachine)
+    println("---------")
+    stateMachine.validate() match {
+      case None => println(Solidity.writeStateMachine(stateMachine))
+      case Some(err) => println(err)
+    }
+  }
 }

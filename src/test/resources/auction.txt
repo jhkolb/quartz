@@ -1,0 +1,19 @@
+data {
+  Seller: Identity
+  HighestBidder: Identity
+  HighestBid: Int
+}
+
+-> open {
+    Seller = sender
+    HighestBid = 0
+}
+
+open ->(bid: Int) open
+requires [ bid > HighestBid ] {
+    HighestBidder = sender
+    HighestBid = bid
+}
+
+open -> closed
+authorized [ Seller ]

@@ -3,22 +3,18 @@ package edu.berkeley.cs.rise.bcdsl
 object Solidity {
   private val INDENTATION_STR: String = "    "
 
-  private def writeField(field: Field): String = {
-    val builder = new StringBuilder()
-
-    builder.append(INDENTATION_STR)
-    field.ty match {
-      case Identity => builder.append("address")
-      case Int => builder.append("int")
-      case String => builder.append("bytes32")
-      case Timestamp => builder.append("uint")
-      case Bool => builder.append("bool")
-      case Timespan => builder.append("uint")
+  private def writeType(ty: DataType): String =
+    ty match {
+      case Identity => "address"
+      case Int => "int"
+      case String => "bytes32"
+      case Timestamp => "uint"
+      case Bool => "bool"
+      case Timespan => "uint"
     }
-    builder.append(s" public ${field.name};\n")
 
-    builder.toString()
-  }
+  private def writeField(field: Variable): String =
+    INDENTATION_STR + s"${writeType(field.ty)} public ${field.name};\n"
 
   private def writeExpression(expression: Expression): String = {
     val builder = new StringBuilder()
@@ -83,18 +79,33 @@ object Solidity {
     builder.toString()
   }
 
+  private def writeParameter(p: Variable): String = s"${writeType(p.ty)} ${p.name}"
+
+  private def writeParameters(parameters: Seq[Variable]): String =
+    parameters.map(writeParameter).mkString(", ")
+
   private def writeTransition(transition: Transition): String = {
     val builder = new StringBuilder()
 
     builder.append(INDENTATION_STR)
     transition.origin match {
-      case None => builder.append("constructor() public {\n")
+      case None =>
+        builder.append("constructor(")
       case Some(o) =>
-        builder.append(s"function ${o}_to_${transition.destination}() public {\n")
+        builder.append(s"function ${o}_to_${transition.destination}(")
+    }
+    transition.parameters match {
+      case None => ()
+      case Some(params) => builder.append(writeParameters(params))
+    }
+    builder.append(") public {\n")
+
+    transition.origin match {
+      case None => ()
+      case Some(o) =>
         builder.append(INDENTATION_STR * 2)
         builder.append(s"require(currentState == State.$o);\n")
     }
-
 
     transition.guard match {
       case None => ()
@@ -148,7 +159,7 @@ object Solidity {
     builder.toString()
   }
 
-  def writeAuthorizationFields(machine: StateMachine): String = {
+  private def writeAuthorizationFields(machine: StateMachine): String = {
     val builder = new StringBuilder()
 
     machine.transitions.foreach { transition =>
@@ -168,7 +179,7 @@ object Solidity {
     builder.toString()
   }
 
-  def writeAuthClause(transition: Transition, authDecl: AuthDecl): String =
+  private def writeAuthClause(transition: Transition, authDecl: AuthDecl): String =
     authDecl match {
       case AuthValue(name) => name
       case AuthCombination(left, operator, right) =>
@@ -191,14 +202,14 @@ object Solidity {
         builder.toString()
     }
 
-  def writeApprovalVar(transition: Transition, principal: String): String =
-    // Validation ensures that transition must have an origin
-    // Only non-initial transitions can have authorization restrictions
+  private def writeApprovalVar(transition: Transition, principal: String): String =
+  // Validation ensures that transition must have an origin
+  // Only non-initial transitions can have authorization restrictions
     s"${transition.origin.get}To${transition.destination}_${principal}Approved"
 
   def writeStateMachine(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
-    builder.append("pragma solidity ^0.4.21;\n\n")
+    builder.append("pragma solidity >0.4.21;\n\n")
     builder.append("contract AutoGen {\n")
 
     val states: Set[String] = stateMachine.transitions.foldLeft(Set.empty[String]) { (states, transition) =>

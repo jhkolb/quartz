@@ -1,15 +1,15 @@
 package edu.berkeley.cs.rise.bcdsl
 
-case class Field(name: String, ty: DataType)
+case class Variable(name: String, ty: DataType)
 
 case class Assignment(name: String, value: Expression)
 
-case class Transition(origin: Option[String], destination: String, authorized: Option[AuthDecl],
-                      guard: Option[Expression], body: Option[Seq[Assignment]]) {
+case class Transition(origin: Option[String], destination: String, parameters: Option[Seq[Variable]],
+                      authorized: Option[AuthDecl], guard: Option[Expression], body: Option[Seq[Assignment]]) {
   val name: String = s"'${origin.getOrElse("")}' -> '$destination'"
 }
 
-case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
+case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
   def validate(): Option[String] = {
     // Check that only one transition is missing a source, this indicates the initial state
     val initialTransitions = transitions.filter(_.origin.isEmpty)
@@ -42,7 +42,25 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
     val context = fields.foldLeft(Map.empty[String, DataType]) { (ctx, field) =>
       ctx + (field.name -> field.ty)
     }
+
     for (transition <- transitions) {
+      val localContext = transition.parameters match {
+        case None => context
+        case Some(params) => params.foldLeft(context) { (ctxt, param) =>
+          ctxt + (param.name -> param.ty)
+        }
+      }
+
+      // Check that transition guard is correctly typed
+      transition.guard match {
+        case Some(expr) => expr.getType(localContext) match {
+          case Left(err) => return Some(s"Invalid guard in transition ${transition.name}: $err")
+          case Right(Bool) => ()
+          case Right(ty) => return Some(s"Guard in transition ${transition.name} is of non-boolean type $ty")
+        }
+        case None => ()
+      }
+
       // Check that authorization clause does not reference undefined identities
       transition.authorized match {
         case Some(authDecl) =>
@@ -59,7 +77,7 @@ case class StateMachine(fields: Seq[Field], transitions: Seq[Transition]) {
       transition.body match {
         case Some(assignments) => for (assignment <- assignments) {
           val fieldType = context.get(assignment.name)
-          val valueType = assignment.value.getType(context)
+          val valueType = assignment.value.getType(localContext)
           fieldType match {
             case None => return Some(s"Transition ${transition.name} references unknown field ${assignment.name}")
             case Some(fieldTy) => valueType match {
