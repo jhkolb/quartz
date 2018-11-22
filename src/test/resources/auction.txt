@@ -2,11 +2,13 @@ data {
   Seller: Identity
   HighestBidder: Identity
   HighestBid: Int
+  Duration: Timespan
 }
 
--> open {
+->(duration: Timespan) open {
     Seller = sender
     HighestBid = 0
+    Duration = duration
 }
 
 open ->(bid: Int) open
@@ -16,4 +18,4 @@ requires [ bid > HighestBid ] {
 }
 
 open -> closed
-authorized [ Seller ]
+onlyAfter [ Duration ]

@@ -75,14 +75,18 @@ object StateMachineParser extends JavaTokenParsers {
 
   def authAnnotation: Parser[AuthDecl] = "authorized" ~ "[" ~> authExpression <~ "]"
 
+  def timingAnnotation: Parser[TimingDecl] = "after" ~ "[" ~> arithmeticExpression <~ "]" ^^ (e => TimingDecl(e, strict = false)) |
+    "onlyAfter" ~ "[" ~> arithmeticExpression <~ "]" ^^ (e => TimingDecl(e, strict = true))
+
   def guardAnnotation: Parser[Expression] = "requires" ~ "[" ~> logicalExpression <~ "]"
 
   def assignment: Parser[Assignment] = ident ~ "=" ~ (arithmeticExpression | logicalExpression) ^^ { case name ~ "=" ~ expr => Assignment(name, expr) }
 
   def transitionBody: Parser[Seq[Assignment]] = "{" ~> rep(assignment) <~ "}"
 
-  def transition: Parser[Transition] = stateChange ~ opt(authAnnotation) ~ opt(guardAnnotation) ~ opt(transitionBody) ^^ { case (origin, parameters, destination) ~ auth ~ guard ~ body =>
-    Transition(origin, destination, parameters, auth, guard, body)
+  def transition: Parser[Transition] = stateChange ~ opt(authAnnotation) ~ opt(timingAnnotation) ~
+    opt(guardAnnotation) ~ opt(transitionBody) ^^ { case (origin, parameters, destination) ~ auth ~ timing ~ guard ~ body =>
+    Transition(origin, destination, parameters, auth, timing, guard, body)
   }
 
   def stateMachine: Parser[StateMachine] = fieldList ~ rep(transition) ^^ { case fields ~ transitions => StateMachine(fields, transitions) }

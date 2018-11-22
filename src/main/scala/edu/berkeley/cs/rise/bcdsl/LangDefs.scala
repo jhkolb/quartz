@@ -144,3 +144,5 @@ case class AuthValue(name: String) extends AuthDecl {
 case class AuthCombination(left: AuthDecl, operator: LogicalOperator, right: AuthDecl) extends AuthDecl {
   override def extractIdentities: Set[String] = left.extractIdentities.union(right.extractIdentities)
 }
+
+case class TimingDecl(constraint: Expression, strict: Boolean)
