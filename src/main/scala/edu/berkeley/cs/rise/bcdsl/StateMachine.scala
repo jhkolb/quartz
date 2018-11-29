@@ -53,18 +53,14 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
     }
 
     for (transition <- transitions) {
-      val localContext = transition.parameters match {
-        case None => context
-        case Some(params) => params.foldLeft(context) { (ctxt, param) =>
-          ctxt + (param.name -> param.ty)
-        }
-      }
+      val localContext = transition.parameters.fold(context)(_.foldLeft(context) { (ctxt, param) =>
+        ctxt + (param.name -> param.ty)
+      })
 
       // Check that transition timing spec is correctly typed
       // And that transition does not have both a time trigger and authorization clause
-      transition.timing match {
-        case None => ()
-        case Some(t) => transition.authorized match {
+      for (t <- transition.timing) {
+        transition.authorized match {
           case Some(_) => return Some(s"Time-triggered transition ${transition.name} cannot have authorization clause")
           case None => t.constraint.getType(context) match {
             case Right(Timespan) => ()
@@ -75,30 +71,27 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
       }
 
       // Check that transition guard is correctly typed
-      transition.guard match {
-        case Some(expr) => expr.getType(localContext) match {
+      for (expr <- transition.guard) {
+        expr.getType(localContext) match {
           case Left(err) => return Some(s"Invalid guard in transition ${transition.name}: $err")
           case Right(Bool) => ()
           case Right(ty) => return Some(s"Guard in transition ${transition.name} is of non-boolean type $ty")
         }
-        case None => ()
       }
 
       // Check that authorization clause does not reference undefined identities
-      transition.authorized match {
-        case Some(authDecl) =>
-          val ids = authDecl.extractIdentities
-          val unknownIds = ids.diff(principals)
-          if (unknownIds.nonEmpty) {
-            return Some(s"Transition ${transition.name} references unknown identities: ${unknownIds.mkString(", ")}")
-          }
-        case None => ()
+      for (authDecl <- transition.authorized) {
+        val ids = authDecl.extractIdentities
+        val unknownIds = ids.diff(principals)
+        if (unknownIds.nonEmpty) {
+          return Some(s"Transition ${transition.name} references unknown identities: ${unknownIds.mkString(", ")}")
+        }
       }
 
       // Check that transition body doesn't reference undefined fields
       // And type check all field assignments
-      transition.body match {
-        case Some(assignments) => for (assignment <- assignments) {
+      for (assignments <- transition.body) {
+        for (assignment <- assignments) {
           val fieldType = context.get(assignment.name)
           val valueType = assignment.value.getType(localContext)
           fieldType match {
@@ -113,18 +106,14 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
             }
           }
         }
-
-        case None => ()
       }
     }
     None
   }
 
   private def transitionsToAdjList(transitions: Seq[Transition]): Map[String, Set[Transition]] =
-    transitions.foldLeft(Map.empty[String, Set[Transition]]) { (m, transition) =>
-      transition.origin match {
-        case None => m
-        case Some(o) => m + (o -> (m.getOrElse(o, Set.empty[Transition]) + transition))
+    transitions.foldLeft(Map.empty[String, Set[Transition]]) { (adjList, transition) =>
+      transition.origin.foldLeft(adjList) { (m, o) => m + (o -> (m.getOrElse(o, Set.empty[Transition]) + transition))
       }
     }
 

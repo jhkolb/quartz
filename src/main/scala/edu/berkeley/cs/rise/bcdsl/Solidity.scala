@@ -95,22 +95,16 @@ object Solidity {
       case Some(o) =>
         builder.append(s"function ${o}_to_${transition.destination}(")
     }
-    transition.parameters match {
-      case None => ()
-      case Some(params) => builder.append(writeParameters(params))
-    }
+    transition.parameters.foreach(params => builder.append(writeParameters(params)))
     builder.append(") public {\n")
 
-    transition.origin match {
-      case None => ()
-      case Some(o) =>
-        builder.append(INDENTATION_STR * 2)
-        builder.append(s"require(currentState == State.$o);\n")
+    transition.origin.foreach { o =>
+      builder.append(INDENTATION_STR * 2)
+      builder.append(s"require(currentState == State.$o);\n")
     }
 
-    val timedTransition = transition.origin.flatMap(timedTransitions.get)
-    timedTransition match {
-      case Some(t) if t != transition =>
+    transition.origin.flatMap(timedTransitions.get).foreach { t =>
+      if (t != transition) {
         // This transition is to another state, but we need to interpose a time-triggered transition instead
         builder.append(INDENTATION_STR * 2)
         builder.append(s"if (now - $LAST_TRANSITION_TIME_VAR > ${writeExpression(t.timing.get.constraint)}")
@@ -128,51 +122,47 @@ object Solidity {
         builder.append("return;\n")
         builder.append(INDENTATION_STR * 2)
         builder.append("}\n")
-      case Some(t) =>
+      } else {
         // This is the time-triggered transition itself
-        // And here it is being invoked manually
+        // And here, it is being invoked manually
         val timingDecl = t.timing.get
         if (timingDecl.strict) {
           builder.append(INDENTATION_STR * 2)
           builder.append(s"require(now - $LAST_TRANSITION_TIME_VAR > ${writeExpression(timingDecl.constraint)});\n")
         }
-      case None => ()
+      }
     }
 
-    transition.guard match {
-      case None => ()
-      case Some(g) =>
+    transition.guard.foreach { g =>
+      builder.append(INDENTATION_STR * 2)
+      builder.append(s"require(${writeExpression(g)});\n")
+    }
+
+    transition.authorized.foreach { authDecl =>
+      val identities = authDecl.extractIdentities
+      if (identities.size == 1) {
         builder.append(INDENTATION_STR * 2)
-        builder.append(s"require(${writeExpression(g)});\n")
-    }
+        builder.append(s"require(msg.sender == ${identities.head});\n")
+      } else {
+        builder.append(INDENTATION_STR * 2)
+        builder.append(s"if (msg.sender == ${identities.head}) {\n")
+        builder.append(INDENTATION_STR * 3)
+        builder.append(s"${writeApprovalVar(transition, identities.head)} = true;\n")
+        builder.append(INDENTATION_STR * 2)
+        builder.append("}\n")
 
-    transition.authorized match {
-      case None => ()
-      case Some(authDecl) =>
-        val identities = authDecl.extractIdentities
-        if (identities.size == 1) {
+        identities.tail.foreach { id =>
           builder.append(INDENTATION_STR * 2)
-          builder.append(s"require(msg.sender == ${identities.head});\n")
-        } else {
-          builder.append(INDENTATION_STR * 2)
-          builder.append(s"if (msg.sender == ${identities.head}) {\n")
+          builder.append(s"else if (msg.sender == $id) {\n")
           builder.append(INDENTATION_STR * 3)
-          builder.append(s"${writeApprovalVar(transition, identities.head)} = true;\n")
+          builder.append(s"${writeApprovalVar(transition, id)} = true;\n")
           builder.append(INDENTATION_STR * 2)
           builder.append("}\n")
-
-          identities.tail.foreach { id =>
-            builder.append(INDENTATION_STR * 2)
-            builder.append(s"else if (msg.sender == $id) {\n")
-            builder.append(INDENTATION_STR * 3)
-            builder.append(s"${writeApprovalVar(transition, id)} = true;\n")
-            builder.append(INDENTATION_STR * 2)
-            builder.append("}\n")
-          }
-
-          builder.append(INDENTATION_STR * 2)
-          builder.append(s"require(${writeAuthClause(transition, authDecl)});\n")
         }
+
+        builder.append(INDENTATION_STR * 2)
+        builder.append(s"require(${writeAuthClause(transition, authDecl)});\n")
+      }
     }
 
     if (transition.origin.getOrElse("") != transition.destination) {
@@ -180,21 +170,16 @@ object Solidity {
       // This assumes time-triggered delays are relative to last non self-loop transition
       builder.append(INDENTATION_STR * 2)
       builder.append(s"currentState = State.${transition.destination};\n")
-      timedTransitions.get(transition.destination) match {
-        case Some(_) =>
-          builder.append(INDENTATION_STR * 2)
-          builder.append(s"$LAST_TRANSITION_TIME_VAR = now;\n")
-        case None => ()
+      timedTransitions.get(transition.destination).foreach { _ =>
+        builder.append(INDENTATION_STR * 2)
+        builder.append(s"$LAST_TRANSITION_TIME_VAR = now;\n")
       }
     }
 
-    transition.body match {
-      case None => ()
-      case Some(assignments) => assignments foreach { assignment =>
-        builder.append(INDENTATION_STR * 2)
-        builder.append(s"${assignment.name} = ${writeExpression(assignment.value)};\n")
-      }
-    }
+    transition.body.foreach(_.foreach { assignment =>
+      builder.append(INDENTATION_STR * 2)
+      builder.append(s"${assignment.name} = ${writeExpression(assignment.value)};\n")
+    })
     builder.append(INDENTATION_STR)
     builder.append("}\n\n")
 
@@ -204,20 +189,15 @@ object Solidity {
   private def writeAuthorizationFields(machine: StateMachine): String = {
     val builder = new StringBuilder()
 
-    machine.transitions.foreach { transition =>
-      transition.authorized match {
-        case Some(authDecl) =>
-          val identities = authDecl.extractIdentities
-          if (identities.size > 1) {
-            identities.foreach { id =>
-              builder.append(INDENTATION_STR)
-              builder.append(s"bool private ${writeApprovalVar(transition, id)};\n")
-            }
-          }
-        case None => ()
+    machine.transitions.foreach(t => t.authorized.foreach { authDecl =>
+      val identities = authDecl.extractIdentities
+      if (identities.size > 1) {
+        identities.foreach { id =>
+          builder.append(INDENTATION_STR)
+          builder.append(s"bool private ${writeApprovalVar(t, id)};\n")
+        }
       }
-    }
-
+    })
     builder.toString()
   }
 
@@ -264,12 +244,8 @@ object Solidity {
         case Some(o) => states + (o, transition.destination)
       }
     }
-    val timeTriggeredTransitions = stateMachine.transitions.foldLeft(Map.empty[String, Transition]) {
-      (timedTransitions, transition) =>
-        transition.timing match {
-          case None => timedTransitions
-          case Some(_) => timedTransitions + (transition.origin.get -> transition)
-        }
+    val timeTriggeredTransitions = stateMachine.transitions.filter(_.timing.isDefined).foldLeft(Map.empty[String, Transition]) {
+      (timedTransitions, transition) => timedTransitions + (transition.origin.get -> transition)
     }
 
     builder.append(INDENTATION_STR)
