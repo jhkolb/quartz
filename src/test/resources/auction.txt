@@ -2,20 +2,23 @@ data {
   Seller: Identity
   HighestBidder: Identity
   HighestBid: Int
+  AuctionStart: Timestamp
   Duration: Timespan
+  Balances: Mapping[Identity, Int]
 }
 
 ->(duration: Timespan) open {
     Seller = sender
     HighestBid = 0
+    AuctionStart = now
     Duration = duration
 }
 
 open ->(bid: Int) open
 requires [ bid > HighestBid ] {
+    Balances[HighestBidder] = HighestBid
     HighestBidder = sender
     HighestBid = bid
 }
 
-open -> closed
-onlyAfter [ Duration ]
+auto open -> closed requires [ now - AuctionStart > Duration ]

@@ -14,9 +14,12 @@ object StateMachineParser extends JavaTokenParsers {
     "String" ^^^ String |
     "Timestamp" ^^^ Timestamp |
     "Timespan" ^^^ Timespan |
-    "Bool" ^^^ Bool
+    "Bool" ^^^ Bool |
+    "Mapping" ~ "[" ~> dataTypeDecl ~ "," ~ dataTypeDecl <~ "]" ^^ { case keyType ~ "," ~ valueType => Mapping(keyType, valueType) }
 
   def variableDecl: Parser[Variable] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Variable(name, ty) }
+
+  def mappingRef: Parser[MappingRef] = ident ~ "[" ~ logicalExpression <~ "]" ^^ { case name ~ "[" ~ key  => MappingRef(name, key)}
 
   def fieldList: Parser[Seq[Variable]] = "data" ~ "{" ~> rep(variableDecl) <~ "}"
 
@@ -30,7 +33,10 @@ object StateMachineParser extends JavaTokenParsers {
     "days" ^^^ Day |
     wholeNumber ^^ { s => IntConst(s.toInt) } |
     stringLiteral ^^ { s => StringLiteral(stripQuotes(s)) } |
+    mappingRef |
     ident ^^ FieldRef
+
+  def assignable: Parser[Assignable] = mappingRef | ident ^^ FieldRef
 
   def multDiv: Parser[ArithmeticOperator] = "*" ^^^ Multiply | "/" ^^^ Divide
 
@@ -75,18 +81,15 @@ object StateMachineParser extends JavaTokenParsers {
 
   def authAnnotation: Parser[AuthDecl] = "authorized" ~ "[" ~> authExpression <~ "]"
 
-  def timingAnnotation: Parser[TimingDecl] = "after" ~ "[" ~> arithmeticExpression <~ "]" ^^ (e => TimingDecl(e, strict = false)) |
-    "onlyAfter" ~ "[" ~> arithmeticExpression <~ "]" ^^ (e => TimingDecl(e, strict = true))
-
   def guardAnnotation: Parser[Expression] = "requires" ~ "[" ~> logicalExpression <~ "]"
 
-  def assignment: Parser[Assignment] = ident ~ "=" ~ (arithmeticExpression | logicalExpression) ^^ { case name ~ "=" ~ expr => Assignment(name, expr) }
+  def assignment: Parser[Assignment] = assignable ~ "=" ~ (arithmeticExpression | logicalExpression) ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs)}
 
   def transitionBody: Parser[Seq[Assignment]] = "{" ~> rep(assignment) <~ "}"
 
-  def transition: Parser[Transition] = stateChange ~ opt(authAnnotation) ~ opt(timingAnnotation) ~
-    opt(guardAnnotation) ~ opt(transitionBody) ^^ { case (origin, parameters, destination) ~ auth ~ timing ~ guard ~ body =>
-    Transition(origin, destination, parameters, auth, timing, guard, body)
+  def transition: Parser[Transition] = opt("auto") ~ stateChange ~ opt(authAnnotation) ~
+    opt(guardAnnotation) ~ opt(transitionBody) ^^ { case autoStmt ~ ((origin, parameters, destination)) ~ auth ~ guard ~ body =>
+    Transition(origin, destination, parameters, auth, autoStmt.isDefined, guard, body)
   }
 
   def stateMachine: Parser[StateMachine] = fieldList ~ rep(transition) ^^ { case fields ~ transitions => StateMachine(fields, transitions) }

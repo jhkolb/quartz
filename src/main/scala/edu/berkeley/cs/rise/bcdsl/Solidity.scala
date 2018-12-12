@@ -2,7 +2,6 @@ package edu.berkeley.cs.rise.bcdsl
 
 object Solidity {
   private val INDENTATION_STR: String = "    "
-  private val LAST_TRANSITION_TIME_VAR = "lastTransitionTime"
 
   private def writeType(ty: DataType): String =
     ty match {
@@ -12,6 +11,7 @@ object Solidity {
       case Timestamp => "uint"
       case Bool => "bool"
       case Timespan => "uint"
+      case Mapping(keyType, valueType) => s"mapping(${writeType(keyType)} => ${writeType(valueType)})"
     }
 
   private def writeField(field: Variable): String =
@@ -22,6 +22,7 @@ object Solidity {
     expression match {
       case ValueExpression(value) => value match {
         case FieldRef(name) => builder.append(name)
+        case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
         case IntConst(v) => builder.append(v)
         case StringLiteral(s) => builder.append("\"" + s + "\"")
         case Now => builder.append("now")
@@ -85,7 +86,18 @@ object Solidity {
   private def writeParameters(parameters: Seq[Variable]): String =
     parameters.map(writeParameter).mkString(", ")
 
-  private def writeTransition(transition: Transition, timedTransitions: Map[String, Transition]): String = {
+  private def writeAssignment(assignment: Assignment): String = {
+    val builder = new StringBuilder()
+    assignment.leftSide match {
+      case FieldRef(name) => builder.append(name)
+      case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
+    }
+    builder.append(" = ")
+    builder.append(writeExpression(assignment.rightSide))
+    builder.toString()
+  }
+
+  private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
     val builder = new StringBuilder()
 
     builder.append(INDENTATION_STR)
@@ -103,35 +115,30 @@ object Solidity {
       builder.append(s"require(currentState == State.$o);\n")
     }
 
-    transition.origin.flatMap(timedTransitions.get).foreach { t =>
-      if (t != transition) {
-        // This transition is to another state, but we need to interpose a time-triggered transition instead
-        builder.append(INDENTATION_STR * 2)
-        builder.append(s"if (now - $LAST_TRANSITION_TIME_VAR > ${writeExpression(t.timing.get.constraint)}")
-        t.guard.foreach { g =>
-          builder.append(s" && !${writeTimedTranEvalVar(t)} && ${writeExpression(g)}")
-        }
-        builder.append(") {\n")
-        t.guard.foreach { g =>
-          builder.append(INDENTATION_STR * 2)
-          builder.append(s"${writeTimedTranEvalVar(t)} = true;\n")
-        }
+    // These transitions are all distinct from the current transition, but we need to interpose them
+    val outgoingAutoTransitions = transition.origin.flatMap(autoTransitions.get)
+    outgoingAutoTransitions.foreach(_.filter(_ != transition).zipWithIndex.foreach { case (t, idx) =>
+      val g = t.guard.get
+      builder.append(INDENTATION_STR * 2)
+      if (idx > 0) {
+        builder.append("else ")
+      }
+      builder.append(s"if (${writeExpression(g)}) {\n")
+
+      if (t.destination != t.origin.get) {
         builder.append(INDENTATION_STR * 3)
         builder.append(s"currentState = State.${t.destination};\n")
-        builder.append(INDENTATION_STR * 3)
-        builder.append("return;\n")
-        builder.append(INDENTATION_STR * 2)
-        builder.append("}\n")
-      } else {
-        // This is the time-triggered transition itself
-        // And here, it is being invoked manually
-        val timingDecl = t.timing.get
-        if (timingDecl.strict) {
-          builder.append(INDENTATION_STR * 2)
-          builder.append(s"require(now - $LAST_TRANSITION_TIME_VAR > ${writeExpression(timingDecl.constraint)});\n")
-        }
       }
-    }
+      t.body.foreach(_.foreach { assignment =>
+        builder.append(INDENTATION_STR * 3)
+        builder.append(s"${writeAssignment(assignment)};\n")
+      })
+
+      builder.append(INDENTATION_STR * 3)
+      builder.append("return;\n")
+      builder.append(INDENTATION_STR * 2)
+      builder.append("}\n")
+    })
 
     transition.guard.foreach { g =>
       builder.append(INDENTATION_STR * 2)
@@ -166,19 +173,14 @@ object Solidity {
     }
 
     if (transition.origin.getOrElse("") != transition.destination) {
-      // We don't need these for a self-loop
-      // This assumes time-triggered delays are relative to last non self-loop transition
+      // We don't need this for a self-loop
       builder.append(INDENTATION_STR * 2)
       builder.append(s"currentState = State.${transition.destination};\n")
-      timedTransitions.get(transition.destination).foreach { _ =>
-        builder.append(INDENTATION_STR * 2)
-        builder.append(s"$LAST_TRANSITION_TIME_VAR = now;\n")
-      }
     }
 
     transition.body.foreach(_.foreach { assignment =>
       builder.append(INDENTATION_STR * 2)
-      builder.append(s"${assignment.name} = ${writeExpression(assignment.value)};\n")
+      builder.append(s"${writeAssignment(assignment)};\n")
     })
     builder.append(INDENTATION_STR)
     builder.append("}\n\n")
@@ -229,10 +231,6 @@ object Solidity {
   // Only non-initial transitions can have authorization restrictions
     s"${transition.origin.get}To${transition.destination}_${principal}Approved"
 
-  private def writeTimedTranEvalVar(transition: Transition): String =
-  // These are used to enforce at most once semantics for evaluation of timed transitions
-    s"${transition.origin.get}To${transition.destination}TimedChecked"
-
   def writeStateMachine(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
     builder.append("pragma solidity >0.4.21;\n\n")
@@ -244,8 +242,9 @@ object Solidity {
         case Some(o) => states + (o, transition.destination)
       }
     }
-    val timeTriggeredTransitions = stateMachine.transitions.filter(_.timing.isDefined).foldLeft(Map.empty[String, Transition]) {
-      (timedTransitions, transition) => timedTransitions + (transition.origin.get -> transition)
+    val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
+      val originState = transition.origin.get
+      autoTrans + (originState -> (autoTrans.getOrElse(originState, Seq.empty[Transition]) :+ transition))
     }
 
     builder.append(INDENTATION_STR)
@@ -259,17 +258,9 @@ object Solidity {
     builder.append(INDENTATION_STR)
     builder.append("State public currentState;\n")
     builder.append(writeAuthorizationFields(stateMachine))
-    if (timeTriggeredTransitions.nonEmpty) {
-      builder.append(INDENTATION_STR)
-      builder.append(s"uint private $LAST_TRANSITION_TIME_VAR;\n")
-    }
-    stateMachine.transitions.filter(t => t.timing.isDefined && t.guard.isDefined).foreach { t =>
-      builder.append(INDENTATION_STR)
-      builder.append(s"bool private ${writeTimedTranEvalVar(t)};\n")
-    }
     builder.append("\n")
 
-    stateMachine.transitions foreach { t => builder.append(writeTransition(t, timeTriggeredTransitions)) }
+    stateMachine.transitions foreach { t => builder.append(writeTransition(t, autoTransitions)) }
 
     builder.append("}")
     builder.toString

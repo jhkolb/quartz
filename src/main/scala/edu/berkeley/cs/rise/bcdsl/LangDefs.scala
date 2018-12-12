@@ -7,14 +7,16 @@ case object String extends DataType
 case object Timestamp extends DataType
 case object Bool extends DataType
 case object Timespan extends DataType
+case class Mapping(keyType: DataType, valueType: DataType) extends DataType
 
 trait Typed {
   def getType(context: Map[String, DataType]): Either[String, DataType]
 }
 
 sealed trait SimpleValue extends Typed
+sealed trait Assignable extends SimpleValue
 
-case class FieldRef(name: String) extends SimpleValue {
+case class FieldRef(name: String) extends Assignable {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = context.get(name) match {
     case None => Left(s"Undefined field $name")
     case Some(ty) => Right(ty)
@@ -38,6 +40,21 @@ case object Sender extends SimpleValue {
 
 case class BoolConst(value: Boolean) extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Bool)
+}
+
+case class MappingRef(mapName: String, key: Expression) extends Assignable {
+  override def getType(context: Map[String, DataType]): Either[String, DataType] = context.get(mapName) match {
+    case None => Left(s"Undefined field $mapName")
+    case Some(Mapping(keyType,valueType)) => key.getType(context) match {
+      case Left(err) => Left(s"Type error in map key expression: $err")
+      case Right(ty) => if (keyType == ty) {
+        Right(valueType)
+      } else {
+        Left(s"Expected map key of type $keyType but found expression of type $ty")
+      }
+    }
+    case Some(ty) => Left(s"Cannot perform key lookup on non-map type $ty")
+  }
 }
 
 sealed trait LogicalOperator
@@ -144,5 +161,3 @@ case class AuthValue(name: String) extends AuthDecl {
 case class AuthCombination(left: AuthDecl, operator: LogicalOperator, right: AuthDecl) extends AuthDecl {
   override def extractIdentities: Set[String] = left.extractIdentities.union(right.extractIdentities)
 }
-
-case class TimingDecl(constraint: Expression, strict: Boolean)
