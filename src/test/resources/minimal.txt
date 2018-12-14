@@ -8,13 +8,13 @@ data {
   answer: String
 }
 
-->configured
+intitialize: ->configured
 
-configured -> running
+run: configured -> running
 authorized [ zz ]
 requires [ x < 4 && (z < 70 || y > 91) ] {}
 
-running -> stopped
+stop: running -> stopped
 authorized [ admin ]
 requires [ true == false ] {
    message = "Hello, World!"

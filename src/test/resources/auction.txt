@@ -7,18 +7,22 @@ data {
   Balances: Mapping[Identity, Int]
 }
 
-->(duration: Timespan) open {
+initialize: ->(duration: Timespan) open {
     Seller = sender
     HighestBid = 0
     AuctionStart = now
     Duration = duration
 }
 
-open ->(bid: Int) open
+submitBid: open ->(bid: Int) open
 requires [ bid > HighestBid ] {
     Balances[HighestBidder] = HighestBid
     HighestBidder = sender
     HighestBid = bid
 }
 
-auto open -> closed requires [ now - AuctionStart > Duration ]
+withdraw: open -> open requires [ Balances[sender] > 0 ] {
+    Balances[sender] = 0
+}
+
+auto closeAuction: open -> closed requires [ now - AuctionStart > Duration ]

@@ -105,7 +105,7 @@ object Solidity {
       case None =>
         builder.append("constructor(")
       case Some(o) =>
-        builder.append(s"function ${o}_to_${transition.destination}(")
+        builder.append(s"function ${transition.name}(")
     }
     transition.parameters.foreach(params => builder.append(writeParameters(params)))
     builder.append(") public {\n")
@@ -206,7 +206,7 @@ object Solidity {
   private def writeApprovalVar(transition: Transition, principal: String): String =
   // Validation ensures that transition must have an origin
   // Only non-initial transitions can have authorization restrictions
-    s"${transition.origin.get}To${transition.destination}_${principal}Approved"
+    s"${transition.name}_${principal}Approved"
 
   private def writeAuthClause(transition: Transition, authDecl: AuthDecl): String =
     authDecl match {

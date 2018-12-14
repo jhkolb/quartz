@@ -4,23 +4,23 @@ data {
   WarrantyStart: Timestamp
 }
 
--> ordered {
+initialize: -> ordered {
   Vendor = sender
 }
 
-ordered -> shipped authorized [ Vendor ]
+declareShipped: ordered -> shipped authorized [ Vendor ]
 
-shipped -> delivered authorized [ Vendor && Buyer ] {
+declareDelivered: shipped -> delivered authorized [ Vendor && Buyer ] {
     WarrantyStart = now
 }
 
-delivered -> vendorQualified authorized [ Vendor ]
+declareVendorQualified: delivered -> vendorQualified authorized [ Vendor ]
 
-vendorQualified -> accepted authorized [ Buyer ]
+declareAccepted: vendorQualified -> accepted authorized [ Buyer ]
 
-accepted -> warrantyClaimed authorized [ Buyer ]
+claimWarranty: accepted -> warrantyClaimed authorized [ Buyer ]
     requires [ now - WarrantyStart < 365 * days ]
 
-warrantyClaimed -> degraded authorized [ Vendor && Buyer ]
+declareDegraded: warrantyClaimed -> degraded authorized [ Vendor && Buyer ]
 
-degraded -> accepted authorized [ Vendor && Buyer ]
+declareRepaired: degraded -> accepted authorized [ Vendor && Buyer ]

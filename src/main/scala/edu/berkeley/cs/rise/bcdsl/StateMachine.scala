@@ -4,10 +4,10 @@ case class Variable(name: String, ty: DataType)
 
 case class Assignment(leftSide: Assignable, rightSide: Expression)
 
-case class Transition(origin: Option[String], destination: String, parameters: Option[Seq[Variable]],
+case class Transition(name: String, origin: Option[String], destination: String, parameters: Option[Seq[Variable]],
                       authorized: Option[AuthDecl], auto: Boolean, guard: Option[Expression],
                       body: Option[Seq[Assignment]]) {
-  val name: String = s"'${origin.getOrElse("")}' -> '$destination'"
+  val description: String = s"'${origin.getOrElse("")}' -> '$destination'"
 }
 
 case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
@@ -61,19 +61,19 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
 
       // Check that transition is not designated as automatic but has an authorization restriction
       if (transition.auto && transition.authorized.isDefined) {
-        return Some(s"Automatic transition ${transition.name} cannot have authorization restriction")
+        return Some(s"Automatic transition ${transition.description} cannot have authorization restriction")
       }
       // Check that transition is not designated as automatic but lacks a guard
       if (transition.auto && transition.guard.isEmpty) {
-        return Some(s"Automatic transition ${transition.name} lacks a guard")
+        return Some(s"Automatic transition ${transition.description} lacks a guard")
       }
 
       // Check that transition guard is correctly typed
       for (expr <- transition.guard) {
         expr.getType(localContext) match {
-          case Left(err) => return Some(s"Invalid guard in transition ${transition.name}: $err")
+          case Left(err) => return Some(s"Invalid guard in transition ${transition.description}: $err")
           case Right(Bool) => ()
-          case Right(ty) => return Some(s"Guard in transition ${transition.name} is of non-boolean type $ty")
+          case Right(ty) => return Some(s"Guard in transition ${transition.description} is of non-boolean type $ty")
         }
       }
 
@@ -82,7 +82,7 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
         val ids = authDecl.extractIdentities
         val unknownIds = ids.diff(principals)
         if (unknownIds.nonEmpty) {
-          return Some(s"Transition ${transition.name} references unknown identities: ${unknownIds.mkString(", ")}")
+          return Some(s"Transition ${transition.description} references unknown identities: ${unknownIds.mkString(", ")}")
         }
       }
 
@@ -91,11 +91,11 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
       for (assignments <- transition.body) {
         for (assignment <- assignments) {
           assignment.leftSide.getType(localContext) match {
-            case Left(err) => return Some(s"Type error in body of transition ${transition.name}: $err")
+            case Left(err) => return Some(s"Type error in body of transition ${transition.description}: $err")
             case Right(leftTy) => assignment.rightSide.getType(localContext) match {
-              case Left(err) => return Some(s"Type error in body of transition ${transition.name}: $err")
+              case Left(err) => return Some(s"Type error in body of transition ${transition.description}: $err")
               case Right(rightTy) => if (leftTy != rightTy) {
-                return Some(s"Type error in body of transition ${transition.name}: " +
+                return Some(s"Type error in body of transition ${transition.description}: " +
                   s"Left-hand type $leftTy does not match right-hand type $rightTy")
               }
             }

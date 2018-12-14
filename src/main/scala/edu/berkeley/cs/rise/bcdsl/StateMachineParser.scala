@@ -19,7 +19,7 @@ object StateMachineParser extends JavaTokenParsers {
 
   def variableDecl: Parser[Variable] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Variable(name, ty) }
 
-  def mappingRef: Parser[MappingRef] = ident ~ "[" ~ logicalExpression <~ "]" ^^ { case name ~ "[" ~ key  => MappingRef(name, key)}
+  def mappingRef: Parser[MappingRef] = ident ~ "[" ~ logicalExpression <~ "]" ^^ { case name ~ "[" ~ key => MappingRef(name, key) }
 
   def fieldList: Parser[Seq[Variable]] = "data" ~ "{" ~> rep(variableDecl) <~ "}"
 
@@ -83,13 +83,13 @@ object StateMachineParser extends JavaTokenParsers {
 
   def guardAnnotation: Parser[Expression] = "requires" ~ "[" ~> logicalExpression <~ "]"
 
-  def assignment: Parser[Assignment] = assignable ~ "=" ~ (arithmeticExpression | logicalExpression) ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs)}
+  def assignment: Parser[Assignment] = assignable ~ "=" ~ (arithmeticExpression | logicalExpression) ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs) }
 
   def transitionBody: Parser[Seq[Assignment]] = "{" ~> rep(assignment) <~ "}"
 
-  def transition: Parser[Transition] = opt("auto") ~ stateChange ~ opt(authAnnotation) ~
-    opt(guardAnnotation) ~ opt(transitionBody) ^^ { case autoStmt ~ ((origin, parameters, destination)) ~ auth ~ guard ~ body =>
-    Transition(origin, destination, parameters, auth, autoStmt.isDefined, guard, body)
+  def transition: Parser[Transition] = opt("auto") ~ ident ~ ":" ~ stateChange ~ opt(authAnnotation) ~
+    opt(guardAnnotation) ~ opt(transitionBody) ^^ { case autoStmt ~ name ~ ":" ~ ((origin, parameters, destination)) ~ auth ~ guard ~ body =>
+    Transition(name, origin, destination, parameters, auth, autoStmt.isDefined, guard, body)
   }
 
   def stateMachine: Parser[StateMachine] = fieldList ~ rep(transition) ^^ { case fields ~ transitions => StateMachine(fields, transitions) }

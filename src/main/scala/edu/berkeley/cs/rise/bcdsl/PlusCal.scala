@@ -5,7 +5,7 @@ object PlusCal {
   private val INDENTATION_STR = "    "
 
   private def writeDomain(ty: DataType): String = ty match {
-    case Identity => "IDENTITIES"
+    case Identity => "IDENTITIES \\ {ZERO}"
     case Int => "MIN_INT..MAX_INT"
     case Bool => "{ TRUE, FALSE }"
     case Timestamp => "0..MAX_INT"
@@ -28,13 +28,14 @@ object PlusCal {
 
   private def writeTransitionApprovalVar(transition: Transition, principal: String): String =
   // Only non-initial transitions can have authorization clause
-    s"${transition.origin.get}To${transition.destination}Approved"
+    s"${transition.name}_${principal}_approved"
 
   private def writeTransitionApprovalFields(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
     stateMachine.transitions.foreach(t => t.authorized.map(_.extractIdentities).filter(_.size > 1).foreach(_.foreach { id =>
+      builder.append(",\n")
       builder.append(INDENTATION_STR)
-      builder.append(s"${writeTransitionApprovalVar(t, id)} = FALSE,\n")
+      builder.append(s"${writeTransitionApprovalVar(t, id)} = FALSE")
     }))
 
     builder.toString()
@@ -139,13 +140,20 @@ object PlusCal {
 
   private def writeTransition(transition: Transition): String = {
     val builder = new StringBuilder()
-    builder.append(s"procedure ${transition.origin.get}_to_${transition.destination}(")
+    builder.append(s"procedure ${transition.name}(")
     transition.parameters.foreach { params =>
       builder.append(params.map(_.name).mkString(", "))
     }
     builder.append(")")
-    builder.append(s" begin ${transition.origin.get}_to_${transition.destination}:\n")
+    builder.append(s" begin ${transition.name}:\n")
 
+
+    transition.origin.foreach { o =>
+      builder.append(INDENTATION_STR)
+      builder.append(s"if currentState /= ${o.toUpperCase()} then\n")
+      builder.append(INDENTATION_STR * 2 + "return;\n")
+      builder.append(INDENTATION_STR + "end if;\n")
+    }
 
     transition.guard.foreach { g =>
       builder.append(INDENTATION_STR)
@@ -189,7 +197,7 @@ object PlusCal {
       }
     }
 
-    if (transition.origin.get != transition.destination) {
+    if (transition.origin.getOrElse("") != transition.destination) {
       builder.append(INDENTATION_STR)
       builder.append(s"currentState := ${transition.destination.toUpperCase};\n")
     }
@@ -202,6 +210,46 @@ object PlusCal {
     builder.append("return;\n")
     builder.append("end procedure;\n\n")
 
+    builder.toString()
+  }
+
+  private def writeTransitionArgumentSelection(transition: Transition): String =
+    "with " + transition.parameters.get.map(p => s"${p.name} \\in ${writeDomain(p.ty)}").mkString(", ") + "do"
+
+  // TODO code cleanup
+  private def writeInvocationLoop(transitions: Seq[Transition]): String = {
+    val builder = new StringBuilder()
+    builder.append("procedure invokeContract(sender) begin InvokeContract:\n")
+    builder.append(INDENTATION_STR + "contractCallDepth := contractCallDepth + 1;\n")
+    builder.append(INDENTATION_STR + "with timeDelta \\in 1..MAX_INT do\n")
+    builder.append(INDENTATION_STR * 2 + "currentTime := currentTime + timeDelta;\n")
+    builder.append(INDENTATION_STR + "end with;\n")
+
+    builder.append("\nMethodCall:\n")
+    if (transitions.length == 1) {
+      builder.append(INDENTATION_STR + writeTransitionArgumentSelection(transitions.head) + "\n")
+      builder.append(INDENTATION_STR * 2)
+      builder.append(s"call ${transitions.head.name}(")
+      builder.append(transitions.head.parameters.get.map(_.name))
+      builder.append(");\n")
+      builder.append(INDENTATION_STR + "end with;")
+    } else {
+      builder.append(INDENTATION_STR + "either\n")
+      transitions.zipWithIndex.foreach { case (transition, idx) =>
+        builder.append(INDENTATION_STR * 2 + writeTransitionArgumentSelection(transition) + "\n")
+        builder.append(INDENTATION_STR * 3 + s"call ${transition.name}(")
+        builder.append(transition.parameters.get.map(_.name).mkString(", "))
+        builder.append(");\n")
+        builder.append(INDENTATION_STR * 2 + "end with;\n")
+
+        if (idx < transitions.length - 1) {
+          builder.append(INDENTATION_STR + "or\n")
+        }
+      }
+      builder.append(INDENTATION_STR + "end either;\n")
+    }
+
+    builder.append("end procedure;\n")
     builder.toString()
   }
 
@@ -222,7 +270,8 @@ object PlusCal {
     builder.append("(* --fair algorithm Autogen\n")
 
     builder.append(s"variables currentState = ${initialState.toUpperCase},\n")
-    builder.append(INDENTATION_STR + "currentTime = 0")
+    builder.append(INDENTATION_STR + "currentTime = 0,\n")
+    builder.append(INDENTATION_STR + "contractCallDepth = 0")
     builder.append(writeTransitionApprovalFields(stateMachine))
 
     if (stateMachine.fields.nonEmpty) {
@@ -232,11 +281,33 @@ object PlusCal {
     builder.append(";\n\n")
 
     // Add synthetic "sender" parameter to all transitions
-    val augmentedTransitions = stateMachine.transitions.map { case Transition(origin, destination, parameters, authorized, auto, guard, body) =>
+    val augmentedTransitions = stateMachine.transitions.map { case Transition(name, origin, destination, parameters, authorized, auto, guard, body) =>
       val newParameters = Variable("sender", Identity) +: parameters.getOrElse(Seq.empty[Variable])
-      Transition(origin, destination, Some(newParameters), authorized, auto, guard, body)
+      Transition(name, origin, destination, Some(newParameters), authorized, auto, guard, body)
     }
-    augmentedTransitions.filter(_.origin.isDefined).foreach(t => builder.append(writeTransition(t)))
+
+    val initialTransition = augmentedTransitions.filter(_.origin.isEmpty).head
+    val standardTransitions = augmentedTransitions.filter(_.origin.isDefined)
+    builder.append(writeTransition(initialTransition))
+    standardTransitions.foreach(t => builder.append(writeTransition(t)))
+
+    builder.append(writeInvocationLoop(standardTransitions))
+
+    // Invoke procedure corresponding to initial transition
+    builder.append("\nbegin Main:\n")
+    builder.append(INDENTATION_STR + "with ")
+    builder.append(initialTransition.parameters.get.map(p => s"${p.name} \\in ${writeDomain(p.ty)}").mkString(", "))
+    builder.append(" do\n")
+    builder.append(INDENTATION_STR * 2)
+    builder.append(s"call ${initialTransition.name}(${initialTransition.parameters.get.map(_.name).mkString(", ")});\n")
+    builder.append(INDENTATION_STR + "end with;\n")
+
+    builder.append("\nLoop:\n")
+    builder.append(INDENTATION_STR + "either\n")
+    builder.append(INDENTATION_STR * 2 + "goto Main;\n")
+    builder.append(INDENTATION_STR + "or\n")
+    builder.append(INDENTATION_STR * 2 + "skip;\n")
+    builder.append(INDENTATION_STR + "end either;\n")
 
     builder.append("end algorithm; *)\n")
     builder.toString()
