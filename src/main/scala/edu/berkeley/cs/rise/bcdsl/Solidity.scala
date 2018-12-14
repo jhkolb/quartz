@@ -203,9 +203,14 @@ object Solidity {
     builder.toString()
   }
 
+  private def writeApprovalVar(transition: Transition, principal: String): String =
+  // Validation ensures that transition must have an origin
+  // Only non-initial transitions can have authorization restrictions
+    s"${transition.origin.get}To${transition.destination}_${principal}Approved"
+
   private def writeAuthClause(transition: Transition, authDecl: AuthDecl): String =
     authDecl match {
-      case AuthValue(name) => name
+      case AuthValue(name) => writeApprovalVar(transition, name)
       case AuthCombination(left, operator, right) =>
         val builder = new StringBuilder()
         left match {
@@ -226,22 +231,11 @@ object Solidity {
         builder.toString()
     }
 
-  private def writeApprovalVar(transition: Transition, principal: String): String =
-  // Validation ensures that transition must have an origin
-  // Only non-initial transitions can have authorization restrictions
-    s"${transition.origin.get}To${transition.destination}_${principal}Approved"
-
   def writeStateMachine(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
     builder.append("pragma solidity >0.4.21;\n\n")
     builder.append("contract AutoGen {\n")
 
-    val states: Set[String] = stateMachine.transitions.foldLeft(Set.empty[String]) { (states, transition) =>
-      transition.origin match {
-        case None => states + transition.destination
-        case Some(o) => states + (o, transition.destination)
-      }
-    }
     val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
       val originState = transition.origin.get
       autoTrans + (originState -> (autoTrans.getOrElse(originState, Seq.empty[Transition]) :+ transition))
@@ -250,7 +244,7 @@ object Solidity {
     builder.append(INDENTATION_STR)
     builder.append("enum State {\n")
     builder.append(INDENTATION_STR * 2)
-    builder.append(states.mkString(",\n" + (INDENTATION_STR * 2)))
+    builder.append(stateMachine.states.mkString(",\n" + (INDENTATION_STR * 2)))
     builder.append("\n")
     builder.append(INDENTATION_STR + "}\n")
 

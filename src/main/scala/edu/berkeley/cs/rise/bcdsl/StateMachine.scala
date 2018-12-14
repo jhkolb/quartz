@@ -11,6 +11,10 @@ case class Transition(origin: Option[String], destination: String, parameters: O
 }
 
 case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
+  val states: Set[String] = transitions.foldLeft(Set.empty[String]) { (currentStates, transition) =>
+    currentStates ++ transition.origin.toSet + transition.destination
+  }
+
   def validate(): Option[String] = {
     // Check that only one transition is missing a source, this indicates the initial state
     val initialTransitions = transitions.filter(_.origin.isEmpty)

@@ -23,7 +23,10 @@ class ParserSpec extends FunSuite {
     println(stateMachine)
     println("------------")
     stateMachine.validate() match {
-      case None => println(Solidity.writeStateMachine(stateMachine))
+      case None =>
+        println(Solidity.writeStateMachine(stateMachine))
+        println("----")
+        println(PlusCal.writeStateMachine(stateMachine))
       case Some(err) => println(err)
     }
   }
@@ -33,7 +36,10 @@ class ParserSpec extends FunSuite {
     println(stateMachine)
     println("------------")
     stateMachine.validate() match {
-      case None => println(Solidity.writeStateMachine(stateMachine))
+      case None =>
+        println(Solidity.writeStateMachine(stateMachine))
+        println("----")
+        println(PlusCal.writeStateMachine(stateMachine))
       case Some(err) => println(err)
     }
   }
@@ -43,7 +49,10 @@ class ParserSpec extends FunSuite {
     println(stateMachine)
     println("---------")
     stateMachine.validate() match {
-      case None => println(Solidity.writeStateMachine(stateMachine))
+      case None =>
+        println(Solidity.writeStateMachine(stateMachine))
+        println("----")
+        println(PlusCal.writeStateMachine(stateMachine))
       case Some(err) => println(err)
     }
   }
