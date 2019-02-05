@@ -16,12 +16,13 @@ trait Typed {
 sealed trait SimpleValue extends Typed
 sealed trait Assignable extends SimpleValue
 
-case class FieldRef(name: String) extends Assignable {
+case class VarRef(name: String) extends Assignable {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = context.get(name) match {
     case None => Left(s"Undefined field $name")
     case Some(ty) => Right(ty)
   }
 }
+
 case class IntConst(value: Int) extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Int)
 }
@@ -161,3 +162,7 @@ case class AuthValue(name: String) extends AuthDecl {
 case class AuthCombination(left: AuthDecl, operator: LogicalOperator, right: AuthDecl) extends AuthDecl {
   override def extractIdentities: Set[String] = left.extractIdentities.union(right.extractIdentities)
 }
+
+sealed trait Statement
+case class Assignment(left: Assignable, right: Expression) extends Statement
+case class Send(destination: Expression, amount: Expression) extends Statement

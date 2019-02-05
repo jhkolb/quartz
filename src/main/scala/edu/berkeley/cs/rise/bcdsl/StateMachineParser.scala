@@ -34,9 +34,9 @@ object StateMachineParser extends JavaTokenParsers {
     wholeNumber ^^ { s => IntConst(s.toInt) } |
     stringLiteral ^^ { s => StringLiteral(stripQuotes(s)) } |
     mappingRef |
-    ident ^^ FieldRef
+    ident ^^ VarRef
 
-  def assignable: Parser[Assignable] = mappingRef | ident ^^ FieldRef
+  def assignable: Parser[Assignable] = mappingRef | ident ^^ VarRef
 
   def multDiv: Parser[ArithmeticOperator] = "*" ^^^ Multiply | "/" ^^^ Divide
 
@@ -85,7 +85,11 @@ object StateMachineParser extends JavaTokenParsers {
 
   def assignment: Parser[Assignment] = assignable ~ "=" ~ (arithmeticExpression | logicalExpression) ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs) }
 
-  def transitionBody: Parser[Seq[Assignment]] = "{" ~> rep(assignment) <~ "}"
+  def send: Parser[Send] = "send" ~ arithmeticExpression ~ "to" ~ arithmeticExpression ^^ { case "send" ~ amountExpr ~ "to" ~ destExpr => Send(destExpr, amountExpr) }
+
+  def statement: Parser[Statement] = assignment | send
+
+  def transitionBody: Parser[Seq[Statement]] = "{" ~> rep(statement) <~ "}"
 
   def transition: Parser[Transition] = opt("auto") ~ ident ~ ":" ~ stateChange ~ opt(authAnnotation) ~
     opt(guardAnnotation) ~ opt(transitionBody) ^^ { case autoStmt ~ name ~ ":" ~ ((origin, parameters, destination)) ~ auth ~ guard ~ body =>

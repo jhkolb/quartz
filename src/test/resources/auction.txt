@@ -22,6 +22,7 @@ requires [ bid > HighestBid ] {
 }
 
 withdraw: open -> open requires [ Balances[sender] > 0 ] {
+    send Balances[sender] to sender
     Balances[sender] = 0
 }
 

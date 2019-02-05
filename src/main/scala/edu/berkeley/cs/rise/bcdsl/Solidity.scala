@@ -21,7 +21,7 @@ object Solidity {
     val builder = new StringBuilder()
     expression match {
       case ValueExpression(value) => value match {
-        case FieldRef(name) => builder.append(name)
+        case VarRef(name) => builder.append(name)
         case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
         case IntConst(v) => builder.append(v)
         case StringLiteral(s) => builder.append("\"" + s + "\"")
@@ -86,15 +86,19 @@ object Solidity {
   private def writeParameters(parameters: Seq[Variable]): String =
     parameters.map(writeParameter).mkString(", ")
 
-  private def writeAssignment(assignment: Assignment): String = {
-    val builder = new StringBuilder()
-    assignment.leftSide match {
-      case FieldRef(name) => builder.append(name)
-      case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
-    }
-    builder.append(" = ")
-    builder.append(writeExpression(assignment.rightSide))
-    builder.toString()
+  private def writeStatement(statement: Statement): String = statement match {
+    case Assignment(left, right) =>
+      val leftStr = left match {
+        case VarRef(name) => name
+        case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
+      }
+      s"$leftStr = ${writeExpression(right)}"
+    case Send(destination, amount) =>
+      val destStr = destination match {
+        case ValueExpression(_) => writeExpression(destination)
+        case _ => s"(${writeExpression(destination)})"
+      }
+      s"$destStr.transfer(${writeExpression(amount)})"
   }
 
   private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
@@ -129,9 +133,9 @@ object Solidity {
         builder.append(INDENTATION_STR * 3)
         builder.append(s"currentState = State.${t.destination};\n")
       }
-      t.body.foreach(_.foreach { assignment =>
+      t.body.foreach(_.foreach { statement =>
         builder.append(INDENTATION_STR * 3)
-        builder.append(s"${writeAssignment(assignment)};\n")
+        builder.append(s"${writeStatement(statement)};\n")
       })
 
       builder.append(INDENTATION_STR * 3)
@@ -178,9 +182,9 @@ object Solidity {
       builder.append(s"currentState = State.${transition.destination};\n")
     }
 
-    transition.body.foreach(_.foreach { assignment =>
+    transition.body.foreach(_.foreach { statement =>
       builder.append(INDENTATION_STR * 2)
-      builder.append(s"${writeAssignment(assignment)};\n")
+      builder.append(s"${writeStatement(statement)};\n")
     })
     builder.append(INDENTATION_STR)
     builder.append("}\n\n")

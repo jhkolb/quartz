@@ -2,11 +2,9 @@ package edu.berkeley.cs.rise.bcdsl
 
 case class Variable(name: String, ty: DataType)
 
-case class Assignment(leftSide: Assignable, rightSide: Expression)
-
 case class Transition(name: String, origin: Option[String], destination: String, parameters: Option[Seq[Variable]],
                       authorized: Option[AuthDecl], auto: Boolean, guard: Option[Expression],
-                      body: Option[Seq[Assignment]]) {
+                      body: Option[Seq[Statement]]) {
   val description: String = s"'${origin.getOrElse("")}' -> '$destination'"
 }
 
@@ -41,9 +39,9 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
       }
     }
     // Check that all states are reachable from initial state
-    val adjacencyList = transitionsToAdjList(transitions)
+    val adjacencyList = StateMachine.transitionsToAdjList(transitions)
     val simpleAdjacencyList = adjacencyList.mapValues(_.map(_.destination))
-    val reachableStates = dfsVisit(initialState, simpleAdjacencyList, Set.empty[String])
+    val reachableStates = StateMachine.dfsVisit(initialState, simpleAdjacencyList, Set.empty[String])
     val unreachableStates = allStates.diff(reachableStates)
     if (unreachableStates.nonEmpty) {
       return Some("Unreachable states: " + unreachableStates.mkString(", "))
@@ -88,24 +86,39 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
 
       // Check that transition body doesn't reference undefined fields
       // And type check all field assignments
-      for (assignments <- transition.body) {
-        for (assignment <- assignments) {
-          assignment.leftSide.getType(localContext) match {
-            case Left(err) => return Some(s"Type error in body of transition ${transition.description}: $err")
-            case Right(leftTy) => assignment.rightSide.getType(localContext) match {
-              case Left(err) => return Some(s"Type error in body of transition ${transition.description}: $err")
-              case Right(rightTy) => if (leftTy != rightTy) {
-                return Some(s"Type error in body of transition ${transition.description}: " +
-                  s"Left-hand type $leftTy does not match right-hand type $rightTy")
-              }
+      for ((statement, i) <- transition.body.getOrElse(Seq.empty[Statement]).zipWithIndex) {
+        statement match {
+          case Assignment(lhs, rhs) =>
+            val leftRes = lhs.getType(localContext)
+            val rightRes = rhs.getType(localContext)
+            (leftRes, rightRes) match {
+              case (Left(err), _) => return Some(StateMachine.makeTypeErrMsg(transition, i, err))
+              case (_, Left(err)) => return Some(StateMachine.makeTypeErrMsg(transition, i, err))
+              case (Right(leftTy), Right(rightTy)) if leftTy != rightTy => return Some(StateMachine.makeTypeErrMsg(transition, i,
+                s"Left-hand type $leftTy does not match right=hand type of $rightTy"))
+              case (Right(_), Right(_)) => ()
             }
-          }
+
+          case Send(destination, amount) =>
+            val destRes = destination.getType(localContext)
+            val amountRes = amount.getType(localContext)
+            (destRes, amountRes) match {
+              case (Left(err), _) => return Some(StateMachine.makeTypeErrMsg(transition, i, err))
+              case (_, Left(err)) => return Some(StateMachine.makeTypeErrMsg(transition, i, err))
+              case (Right(Identity), Right(Int)) => () // This is the case we want
+              case (Right(destTy), Right(Int)) if destTy != Identity => return Some(StateMachine.makeTypeErrMsg(transition, i,
+                s"Expected send destination of type Identity, but found $destTy"))
+              case (Right(Identity), Right(amountTy)) => return Some(StateMachine.makeTypeErrMsg(transition, i,
+                s"Expected amount destination of type Int, but found $amountTy"))
+            }
         }
       }
     }
     None
   }
+}
 
+object StateMachine {
   private def transitionsToAdjList(transitions: Seq[Transition]): Map[String, Set[Transition]] =
     transitions.foldLeft(Map.empty[String, Set[Transition]]) { (adjList, transition) =>
       transition.origin.foldLeft(adjList) { (m, o) => m + (o -> (m.getOrElse(o, Set.empty[Transition]) + transition))
@@ -121,4 +134,7 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
           currentVisited ++ dfsVisit(neighbor, adjacencyList, currentVisited)
         }
     }
+
+  private def makeTypeErrMsg(transition: Transition, idx: Int, msg: String): String =
+    s"Type error on statement ${idx + 1} of transition ${transition.description}: $msg"
 }

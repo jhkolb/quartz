@@ -3,6 +3,7 @@ package edu.berkeley.cs.rise.bcdsl
 object PlusCal {
 
   private val INDENTATION_STR = "    "
+  private var labelCounter = 0
 
   private def writeDomain(ty: DataType): String = ty match {
     case Identity => "IDENTITIES \\ {ZERO}"
@@ -71,8 +72,8 @@ object PlusCal {
     val builder = new StringBuilder()
     expression match {
       case ValueExpression(value) => value match {
-        case FieldRef(name) => builder.append(name)
-        case MappingRef(mapName, key) => builder.append(s"$mapName[$key]")
+        case VarRef(name) => builder.append(name)
+        case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
         case IntConst(v) => builder.append(v)
         case StringLiteral(s) => builder.append("\"" + s + "\"")
         case Now => builder.append("currentTime")
@@ -129,13 +130,21 @@ object PlusCal {
     builder.toString()
   }
 
-  private def writeAssignment(assignment: Assignment): String = {
-    val left = assignment.leftSide match {
-      case FieldRef(name) => name
-      case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
-    }
+  private def writeStatement(statement: Statement): String = statement match {
+    case Assignment(left, right) =>
+      val leftStr = left match {
+        case VarRef(name) => name
+        case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
+      }
+      s"$leftStr := ${writeExpression(right)};"
 
-    s"$left := ${writeExpression(assignment.rightSide)}"
+    case Send(destination, amount) => s"call sendTokens(${writeExpression(destination)}, ${writeExpression(amount)});\n${nextLabel()}"
+  }
+
+  private def nextLabel(): String = {
+    val currentLabelIndex = labelCounter
+    labelCounter += 1
+    s"L$currentLabelIndex:"
   }
 
   private def writeTransition(transition: Transition): String = {
@@ -153,6 +162,7 @@ object PlusCal {
       builder.append(s"if currentState /= ${o.toUpperCase()} then\n")
       builder.append(INDENTATION_STR * 2 + "return;\n")
       builder.append(INDENTATION_STR + "end if;\n")
+      builder.append(nextLabel() + "\n")
     }
 
     transition.guard.foreach { g =>
@@ -162,6 +172,7 @@ object PlusCal {
       builder.append("return;\n")
       builder.append(INDENTATION_STR)
       builder.append("end if;\n")
+      builder.append(nextLabel() + "\n")
     }
 
     transition.authorized.foreach { authDecl =>
@@ -173,6 +184,7 @@ object PlusCal {
         builder.append("return;\n")
         builder.append(INDENTATION_STR)
         builder.append("end if;\n")
+        builder.append(nextLabel() + "\n")
       } else {
         builder.append(INDENTATION_STR)
         builder.append(s"if sender = ${identities.head} then\n")
@@ -187,6 +199,7 @@ object PlusCal {
         }
         builder.append(INDENTATION_STR)
         builder.append("end if;\n")
+        builder.append(nextLabel() + "\n")
 
         builder.append(INDENTATION_STR)
         builder.append(s"if ~(${writeAuthClause(transition, authDecl)}) then\n")
@@ -194,6 +207,7 @@ object PlusCal {
         builder.append("return;\n")
         builder.append(INDENTATION_STR)
         builder.append("end if;\n")
+        builder.append(nextLabel() + "\n")
       }
     }
 
@@ -201,9 +215,9 @@ object PlusCal {
       builder.append(INDENTATION_STR)
       builder.append(s"currentState := ${transition.destination.toUpperCase};\n")
     }
-    transition.body.foreach(_.foreach { assignment =>
+    transition.body.foreach(_.foreach { statement =>
       builder.append(INDENTATION_STR)
-      builder.append(s"${writeAssignment(assignment)};\n")
+      builder.append(s"${writeStatement(statement)}\n")
     })
 
     builder.append(INDENTATION_STR)
@@ -214,7 +228,7 @@ object PlusCal {
   }
 
   private def writeTransitionArgumentSelection(transition: Transition): String =
-    "with " + transition.parameters.get.map(p => s"${p.name} \\in ${writeDomain(p.ty)}").mkString(", ") + "do"
+    "with " + transition.parameters.get.map(p => s"${p.name} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
 
   // TODO code cleanup
   private def writeInvocationLoop(transitions: Seq[Transition]): String = {
@@ -253,6 +267,20 @@ object PlusCal {
     builder.toString()
   }
 
+  private def writeSendFunction(): String = {
+    val builder = new StringBuilder()
+    builder.append("procedure sendTokens(sender, amount) begin SendTokens:\n")
+    builder.append(INDENTATION_STR + "contractBalance := contractBalance - amount;\n")
+    builder.append("SendInvocation:\n")
+    builder.append(INDENTATION_STR + "either\n")
+    builder.append(INDENTATION_STR * 2 + "call invokeContract(sender);\n")
+    builder.append(INDENTATION_STR + "or\n")
+    builder.append(INDENTATION_STR * 2 + "skip;\n")
+    builder.append(INDENTATION_STR + "end either;\n")
+    builder.append("end procedure;\n")
+    builder.toString()
+  }
+
   def writeStateMachine(stateMachine: StateMachine): String = {
     val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
 
@@ -261,7 +289,7 @@ object PlusCal {
     builder.append("EXTENDS Integers, Sequences, TLC\n")
 
     val stateNames = stateMachine.states.map(_.toUpperCase)
-    val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase()) ++ Seq("OTHER", "ZERO")
+    val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase()) :+ "ZERO"
     builder.append(s"CONSTANTS ${stateNames.mkString(", ")}\n")
     builder.append(s"CONSTANTS ${identityNames.mkString(", ")}\n")
     builder.append(s"STATES == { ${stateMachine.states.map(_.toUpperCase).mkString(", ")} }\n")
@@ -271,7 +299,8 @@ object PlusCal {
 
     builder.append(s"variables currentState = ${initialState.toUpperCase},\n")
     builder.append(INDENTATION_STR + "currentTime = 0,\n")
-    builder.append(INDENTATION_STR + "contractCallDepth = 0")
+    builder.append(INDENTATION_STR + "contractCallDepth = 0,\n")
+    builder.append(INDENTATION_STR + "contractBalance = 0")
     builder.append(writeTransitionApprovalFields(stateMachine))
 
     if (stateMachine.fields.nonEmpty) {
@@ -292,6 +321,8 @@ object PlusCal {
     standardTransitions.foreach(t => builder.append(writeTransition(t)))
 
     builder.append(writeInvocationLoop(standardTransitions))
+    builder.append("\n")
+    builder.append(writeSendFunction())
 
     // Invoke procedure corresponding to initial transition
     builder.append("\nbegin Main:\n")
@@ -310,6 +341,7 @@ object PlusCal {
     builder.append(INDENTATION_STR + "end either;\n")
 
     builder.append("end algorithm; *)\n")
+    builder.append("========")
     builder.toString()
   }
 }
