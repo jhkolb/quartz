@@ -3,6 +3,7 @@ package edu.berkeley.cs.rise.bcdsl
 object PlusCal {
 
   private val INDENTATION_STR = "    "
+  private val BUILT_IN_CONSTANTS = Seq("MAX_INT, MIN_INT, MAX_TIMESTEP")
   private var labelCounter = 0
 
   private def writeDomain(ty: DataType): String = ty match {
@@ -228,14 +229,15 @@ object PlusCal {
   }
 
   private def writeTransitionArgumentSelection(transition: Transition): String =
-    "with " + transition.parameters.get.map(p => s"${p.name} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
+    // Add "_arg" suffix to avoid name collisions in the TLA+ that gets produced from this PlusCal
+    "with " + transition.parameters.get.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
 
   // TODO code cleanup
   private def writeInvocationLoop(transitions: Seq[Transition]): String = {
     val builder = new StringBuilder()
     builder.append("procedure invokeContract(sender) begin InvokeContract:\n")
     builder.append(INDENTATION_STR + "contractCallDepth := contractCallDepth + 1;\n")
-    builder.append(INDENTATION_STR + "with timeDelta \\in 1..MAX_INT do\n")
+    builder.append(INDENTATION_STR + "with timeDelta \\in 1..MAX_TIMESTEP do\n")
     builder.append(INDENTATION_STR * 2 + "currentTime := currentTime + timeDelta;\n")
     builder.append(INDENTATION_STR + "end with;\n")
 
@@ -252,7 +254,8 @@ object PlusCal {
       transitions.zipWithIndex.foreach { case (transition, idx) =>
         builder.append(INDENTATION_STR * 2 + writeTransitionArgumentSelection(transition) + "\n")
         builder.append(INDENTATION_STR * 3 + s"call ${transition.name}(")
-        builder.append(transition.parameters.get.map(_.name).mkString(", "))
+        // Again, add "_arg" suffix to avoid name collisions in TLA+
+        builder.append(transition.parameters.get.map(_.name + "_arg").mkString(", "))
         builder.append(");\n")
         builder.append(INDENTATION_STR * 2 + "end with;\n")
 
@@ -290,6 +293,7 @@ object PlusCal {
 
     val stateNames = stateMachine.states.map(_.toUpperCase)
     val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase()) :+ "ZERO"
+    builder.append(s"CONSTANTS ${BUILT_IN_CONSTANTS.mkString(", ")}\n")
     builder.append(s"CONSTANTS ${stateNames.mkString(", ")}\n")
     builder.append(s"CONSTANTS ${identityNames.mkString(", ")}\n")
     builder.append(s"STATES == { ${stateMachine.states.map(_.toUpperCase).mkString(", ")} }\n")
@@ -326,16 +330,21 @@ object PlusCal {
 
     // Invoke procedure corresponding to initial transition
     builder.append("\nbegin Main:\n")
+    // Add the usual "_arg" suffix to prevent name collisions in TLA+
     builder.append(INDENTATION_STR + "with ")
-    builder.append(initialTransition.parameters.get.map(p => s"${p.name} \\in ${writeDomain(p.ty)}").mkString(", "))
+    builder.append(initialTransition.parameters.get.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", "))
     builder.append(" do\n")
     builder.append(INDENTATION_STR * 2)
-    builder.append(s"call ${initialTransition.name}(${initialTransition.parameters.get.map(_.name).mkString(", ")});\n")
+    builder.append(s"call ${initialTransition.name}(${initialTransition.parameters.get.map(_.name + "_arg").mkString(", ")});\n")
     builder.append(INDENTATION_STR + "end with;\n")
 
     builder.append("\nLoop:\n")
+    builder.append(INDENTATION_STR + s"with senderArg \\in ${writeDomain(Identity)} do\n")
+    builder.append(INDENTATION_STR * 2 + "call invokeContract(senderArg);\n")
+    builder.append(INDENTATION_STR + "end with;\n")
+    builder.append(nextLabel() + "\n")
     builder.append(INDENTATION_STR + "either\n")
-    builder.append(INDENTATION_STR * 2 + "goto Main;\n")
+    builder.append(INDENTATION_STR * 2 + "goto Loop;\n")
     builder.append(INDENTATION_STR + "or\n")
     builder.append(INDENTATION_STR * 2 + "skip;\n")
     builder.append(INDENTATION_STR + "end either;\n")
