@@ -235,32 +235,33 @@ object Solidity {
         builder.toString()
     }
 
-  def writeStateMachine(stateMachine: StateMachine): String = {
-    val builder = new StringBuilder()
-    builder.append("pragma solidity >0.4.21;\n\n")
-    builder.append("contract AutoGen {\n")
+  def writeSpecification(specification: Specification): String = specification match {
+    case Specification(name, stateMachine, _) =>
+      val builder = new StringBuilder()
+      builder.append("pragma solidity >0.4.21;\n\n")
+      builder.append(s"contract $name {\n")
 
-    val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
-      val originState = transition.origin.get
-      autoTrans + (originState -> (autoTrans.getOrElse(originState, Seq.empty[Transition]) :+ transition))
-    }
+      val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
+        val originState = transition.origin.get
+        autoTrans + (originState -> (autoTrans.getOrElse(originState, Seq.empty[Transition]) :+ transition))
+      }
 
-    builder.append(INDENTATION_STR)
-    builder.append("enum State {\n")
-    builder.append(INDENTATION_STR * 2)
-    builder.append(stateMachine.states.mkString(",\n" + (INDENTATION_STR * 2)))
-    builder.append("\n")
-    builder.append(INDENTATION_STR + "}\n")
+      builder.append(INDENTATION_STR)
+      builder.append("enum State {\n")
+      builder.append(INDENTATION_STR * 2)
+      builder.append(stateMachine.states.mkString(",\n" + (INDENTATION_STR * 2)))
+      builder.append("\n")
+      builder.append(INDENTATION_STR + "}\n")
 
-    stateMachine.fields foreach { f => builder.append(writeField(f)) }
-    builder.append(INDENTATION_STR)
-    builder.append("State public currentState;\n")
-    builder.append(writeAuthorizationFields(stateMachine))
-    builder.append("\n")
+      stateMachine.fields foreach { f => builder.append(writeField(f)) }
+      builder.append(INDENTATION_STR)
+      builder.append("State public currentState;\n")
+      builder.append(writeAuthorizationFields(stateMachine))
+      builder.append("\n")
 
-    stateMachine.transitions foreach { t => builder.append(writeTransition(t, autoTransitions)) }
+      stateMachine.transitions foreach { t => builder.append(writeTransition(t, autoTransitions)) }
 
-    builder.append("}")
-    builder.toString
+      builder.append("}")
+      builder.toString
   }
 }

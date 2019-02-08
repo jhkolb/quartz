@@ -1,26 +1,28 @@
-data {
-  Buyer: Identity
-  Vendor: Identity
-  WarrantyStart: Timestamp
+contract Equipment {
+    data {
+      Buyer: Identity
+      Vendor: Identity
+      WarrantyStart: Timestamp
+    }
+
+    initialize: -> ordered {
+      Vendor = sender
+    }
+
+    declareShipped: ordered -> shipped authorized [ Vendor ]
+
+    declareDelivered: shipped -> delivered authorized [ Vendor && Buyer ] {
+        WarrantyStart = now
+    }
+
+    declareVendorQualified: delivered -> vendorQualified authorized [ Vendor ]
+
+    declareAccepted: vendorQualified -> accepted authorized [ Buyer ]
+
+    claimWarranty: accepted -> warrantyClaimed authorized [ Buyer ]
+        requires [ now - WarrantyStart < 365 * days ]
+
+    declareDegraded: warrantyClaimed -> degraded authorized [ Vendor && Buyer ]
+
+    declareRepaired: degraded -> accepted authorized [ Vendor && Buyer ]
 }
-
-initialize: -> ordered {
-  Vendor = sender
-}
-
-declareShipped: ordered -> shipped authorized [ Vendor ]
-
-declareDelivered: shipped -> delivered authorized [ Vendor && Buyer ] {
-    WarrantyStart = now
-}
-
-declareVendorQualified: delivered -> vendorQualified authorized [ Vendor ]
-
-declareAccepted: vendorQualified -> accepted authorized [ Buyer ]
-
-claimWarranty: accepted -> warrantyClaimed authorized [ Buyer ]
-    requires [ now - WarrantyStart < 365 * days ]
-
-declareDegraded: warrantyClaimed -> degraded authorized [ Vendor && Buyer ]
-
-declareRepaired: degraded -> accepted authorized [ Vendor && Buyer ]

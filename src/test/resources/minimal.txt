@@ -1,22 +1,24 @@
-data {
-  foo: Int
-  bar: String
-  baz: Identity
-  zz: Identity
-  admin: Identity
-  message: String
-  answer: String
-}
+contract Minimal {
+    data {
+      foo: Int
+      bar: String
+      baz: Identity
+      zz: Identity
+      admin: Identity
+      message: String
+      answer: String
+    }
 
-intitialize: ->configured
+    intitialize: ->configured
 
-run: configured -> running
-authorized [ zz ]
-requires [ x < 4 && (z < 70 || y > 91) ] {}
+    run: configured -> running
+    authorized [ zz ]
+    requires [ x < 4 && (z < 70 || y > 91) ] {}
 
-stop: running -> stopped
-authorized [ admin ]
-requires [ true == false ] {
-   message = "Hello, World!"
-   answer = 42
+    stop: running -> stopped
+    authorized [ admin ]
+    requires [ true == false ] {
+       message = "Hello, World!"
+       answer = 42
+    }
 }

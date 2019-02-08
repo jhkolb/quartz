@@ -2,7 +2,7 @@ package edu.berkeley.cs.rise.bcdsl
 
 import scala.util.parsing.combinator.JavaTokenParsers
 
-object StateMachineParser extends JavaTokenParsers {
+object SpecificationParser extends JavaTokenParsers {
   def stripQuotes(s: String): String = if (s.startsWith("\"") && s.endsWith("\"")) {
     s.substring(1, s.length - 1)
   } else {
@@ -46,16 +46,19 @@ object StateMachineParser extends JavaTokenParsers {
 
   def comparator: Parser[LogicalOperator] = "==" ^^^ Equal |
     "!=" ^^^ NotEqual |
-    "<" ^^^ LessThan |
+    ">=" ^^^ GreaterThanOrEqual |
     "<=" ^^^ LessThanOrEqual |
-    ">" ^^^ GreaterThan |
-    ">=" ^^^ GreaterThanOrEqual
+    "<" ^^^ LessThan |
+    ">" ^^^ GreaterThan
 
   def factor: Parser[Expression] = valueDecl ^^ ValueExpression | "(" ~> arithmeticExpression <~ ")"
 
   def term: Parser[Expression] = chainl1(factor, multDiv ^^
     (op => (left: Expression, right: Expression) => ArithmeticExpression(left, op, right)))
 
+  // Note: It's possible we could do something fancy like declaring this as a Parser[ArithmeticExpression]
+  // And enforcing more structure on the arithmetic/logical expressions at parse time
+  // But let's leave this to the type checker, where it likely belongs
   def arithmeticExpression: Parser[Expression] = chainl1(term, plusMinus ^^
     (op => (left: Expression, right: Expression) => ArithmeticExpression(left, op, right)))
 
@@ -97,4 +100,15 @@ object StateMachineParser extends JavaTokenParsers {
   }
 
   def stateMachine: Parser[StateMachine] = fieldList ~ rep(transition) ^^ { case fields ~ transitions => StateMachine(fields, transitions) }
+
+  def ltlOperator: Parser[LTLOperator] = "[]" ^^^ Always |
+    "<>" ^^^ Eventually
+
+  def ltlProperty: Parser[LTLProperty] = ltlOperator ~ "(" ~ logicalExpression <~ ")" ^^
+    { case op ~ "(" ~ expr => LTLProperty(op, expr) }
+
+  def propertySpec: Parser[Seq[LTLProperty]] = "properties" ~ "{" ~> rep(ltlProperty) <~ "}"
+
+  def specification: Parser[Specification] = "contract" ~> ident ~ "{" ~ stateMachine ~ "}" ~ opt(propertySpec) ^^
+    { case name ~ "{" ~ stateMachine ~ "}" ~ props => Specification(name, stateMachine, props) }
 }

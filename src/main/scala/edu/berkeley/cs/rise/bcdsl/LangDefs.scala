@@ -74,6 +74,10 @@ case object Minus extends ArithmeticOperator
 case object Multiply extends ArithmeticOperator
 case object Divide extends ArithmeticOperator
 
+sealed trait LTLOperator
+case object Always extends LTLOperator
+case object Eventually extends LTLOperator
+
 sealed trait Timespan extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Timespan)
 }
@@ -150,6 +154,8 @@ case class ArithmeticExpression(left: Expression, operator: ArithmeticOperator, 
     }
   ) yield resultTy
 }
+
+case class LTLProperty(operator: LTLOperator, body: Expression)
 
 sealed trait AuthDecl {
   def extractIdentities: Set[String]

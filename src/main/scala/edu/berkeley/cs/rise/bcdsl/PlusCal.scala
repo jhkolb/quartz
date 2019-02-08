@@ -194,7 +194,7 @@ object PlusCal {
 
         identities.tail.foreach { id =>
           builder.append(INDENTATION_STR)
-          builder.append(s"elsif sender == $id then\n")
+          builder.append(s"elsif sender = $id then\n")
           builder.append(INDENTATION_STR * 2)
           builder.append(s"${writeTransitionApprovalVar(transition, id)} := TRUE;\n")
         }
@@ -229,7 +229,7 @@ object PlusCal {
   }
 
   private def writeTransitionArgumentSelection(transition: Transition): String =
-    // Add "_arg" suffix to avoid name collisions in the TLA+ that gets produced from this PlusCal
+  // Add "_arg" suffix to avoid name collisions in the TLA+ that gets produced from this PlusCal
     "with " + transition.parameters.get.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
 
   // TODO code cleanup
@@ -284,73 +284,74 @@ object PlusCal {
     builder.toString()
   }
 
-  def writeStateMachine(stateMachine: StateMachine): String = {
-    val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
+  def writeSpecification(specification: Specification): String = specification match {
+    case Specification(name, stateMachine, _) =>
+      val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
 
-    val builder = new StringBuilder()
-    builder.append("-----MODULE Autogen-----\n")
-    builder.append("EXTENDS Integers, Sequences, TLC\n")
+      val builder = new StringBuilder()
+      builder.append(s"-----MODULE $name-----\n")
+      builder.append("EXTENDS Integers, Sequences, TLC\n")
 
-    val stateNames = stateMachine.states.map(_.toUpperCase)
-    val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase()) :+ "ZERO"
-    builder.append(s"CONSTANTS ${BUILT_IN_CONSTANTS.mkString(", ")}\n")
-    builder.append(s"CONSTANTS ${stateNames.mkString(", ")}\n")
-    builder.append(s"CONSTANTS ${identityNames.mkString(", ")}\n")
-    builder.append(s"STATES == { ${stateMachine.states.map(_.toUpperCase).mkString(", ")} }\n")
-    builder.append(s"IDENTITIES == { ${identityNames.mkString(", ")} }\n\n")
+      val stateNames = stateMachine.states.map(_.toUpperCase)
+      val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase()) :+ "ZERO"
+      builder.append(s"CONSTANTS ${BUILT_IN_CONSTANTS.mkString(", ")}\n")
+      builder.append(s"CONSTANTS ${stateNames.mkString(", ")}\n")
+      builder.append(s"CONSTANTS ${identityNames.mkString(", ")}\n")
+      builder.append(s"STATES == { ${stateMachine.states.map(_.toUpperCase).mkString(", ")} }\n")
+      builder.append(s"IDENTITIES == { ${identityNames.mkString(", ")} }\n\n")
 
-    builder.append("(* --fair algorithm Autogen\n")
+      builder.append(s"(* --fair algorithm $name\n")
 
-    builder.append(s"variables currentState = ${initialState.toUpperCase},\n")
-    builder.append(INDENTATION_STR + "currentTime = 0,\n")
-    builder.append(INDENTATION_STR + "contractCallDepth = 0,\n")
-    builder.append(INDENTATION_STR + "contractBalance = 0")
-    builder.append(writeTransitionApprovalFields(stateMachine))
+      builder.append(s"variables currentState = ${initialState.toUpperCase},\n")
+      builder.append(INDENTATION_STR + "currentTime = 0,\n")
+      builder.append(INDENTATION_STR + "contractCallDepth = 0,\n")
+      builder.append(INDENTATION_STR + "contractBalance = 0")
+      builder.append(writeTransitionApprovalFields(stateMachine))
 
-    if (stateMachine.fields.nonEmpty) {
-      builder.append(",\n" + INDENTATION_STR)
-      builder.append(stateMachine.fields.map(writeField).mkString(",\n" + INDENTATION_STR))
-    }
-    builder.append(";\n\n")
+      if (stateMachine.fields.nonEmpty) {
+        builder.append(",\n" + INDENTATION_STR)
+        builder.append(stateMachine.fields.map(writeField).mkString(",\n" + INDENTATION_STR))
+      }
+      builder.append(";\n\n")
 
-    // Add synthetic "sender" parameter to all transitions
-    val augmentedTransitions = stateMachine.transitions.map { case Transition(name, origin, destination, parameters, authorized, auto, guard, body) =>
-      val newParameters = Variable("sender", Identity) +: parameters.getOrElse(Seq.empty[Variable])
-      Transition(name, origin, destination, Some(newParameters), authorized, auto, guard, body)
-    }
+      // Add synthetic "sender" parameter to all transitions
+      val augmentedTransitions = stateMachine.transitions.map { case Transition(tName, origin, destination, parameters, authorized, auto, guard, body) =>
+        val newParameters = Variable("sender", Identity) +: parameters.getOrElse(Seq.empty[Variable])
+        Transition(tName, origin, destination, Some(newParameters), authorized, auto, guard, body)
+      }
 
-    val initialTransition = augmentedTransitions.filter(_.origin.isEmpty).head
-    val standardTransitions = augmentedTransitions.filter(_.origin.isDefined)
-    builder.append(writeTransition(initialTransition))
-    standardTransitions.foreach(t => builder.append(writeTransition(t)))
+      val initialTransition = augmentedTransitions.filter(_.origin.isEmpty).head
+      val standardTransitions = augmentedTransitions.filter(_.origin.isDefined)
+      builder.append(writeTransition(initialTransition))
+      standardTransitions.foreach(t => builder.append(writeTransition(t)))
 
-    builder.append(writeInvocationLoop(standardTransitions))
-    builder.append("\n")
-    builder.append(writeSendFunction())
+      builder.append(writeInvocationLoop(standardTransitions))
+      builder.append("\n")
+      builder.append(writeSendFunction())
 
-    // Invoke procedure corresponding to initial transition
-    builder.append("\nbegin Main:\n")
-    // Add the usual "_arg" suffix to prevent name collisions in TLA+
-    builder.append(INDENTATION_STR + "with ")
-    builder.append(initialTransition.parameters.get.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", "))
-    builder.append(" do\n")
-    builder.append(INDENTATION_STR * 2)
-    builder.append(s"call ${initialTransition.name}(${initialTransition.parameters.get.map(_.name + "_arg").mkString(", ")});\n")
-    builder.append(INDENTATION_STR + "end with;\n")
+      // Invoke procedure corresponding to initial transition
+      builder.append("\nbegin Main:\n")
+      // Add the usual "_arg" suffix to prevent name collisions in TLA+
+      builder.append(INDENTATION_STR + "with ")
+      builder.append(initialTransition.parameters.get.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", "))
+      builder.append(" do\n")
+      builder.append(INDENTATION_STR * 2)
+      builder.append(s"call ${initialTransition.name}(${initialTransition.parameters.get.map(_.name + "_arg").mkString(", ")});\n")
+      builder.append(INDENTATION_STR + "end with;\n")
 
-    builder.append("\nLoop:\n")
-    builder.append(INDENTATION_STR + s"with senderArg \\in ${writeDomain(Identity)} do\n")
-    builder.append(INDENTATION_STR * 2 + "call invokeContract(senderArg);\n")
-    builder.append(INDENTATION_STR + "end with;\n")
-    builder.append(nextLabel() + "\n")
-    builder.append(INDENTATION_STR + "either\n")
-    builder.append(INDENTATION_STR * 2 + "goto Loop;\n")
-    builder.append(INDENTATION_STR + "or\n")
-    builder.append(INDENTATION_STR * 2 + "skip;\n")
-    builder.append(INDENTATION_STR + "end either;\n")
+      builder.append("\nLoop:\n")
+      builder.append(INDENTATION_STR + s"with senderArg \\in ${writeDomain(Identity)} do\n")
+      builder.append(INDENTATION_STR * 2 + "call invokeContract(senderArg);\n")
+      builder.append(INDENTATION_STR + "end with;\n")
+      builder.append(nextLabel() + "\n")
+      builder.append(INDENTATION_STR + "either\n")
+      builder.append(INDENTATION_STR * 2 + "goto Loop;\n")
+      builder.append(INDENTATION_STR + "or\n")
+      builder.append(INDENTATION_STR * 2 + "skip;\n")
+      builder.append(INDENTATION_STR + "end either;\n")
 
-    builder.append("end algorithm; *)\n")
-    builder.append("========")
-    builder.toString()
+      builder.append("end algorithm; *)\n")
+      builder.append("========")
+      builder.toString()
   }
 }

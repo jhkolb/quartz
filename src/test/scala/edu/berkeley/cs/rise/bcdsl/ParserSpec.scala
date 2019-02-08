@@ -5,54 +5,54 @@ import org.scalatest.FunSuite
 import scala.io.Source
 
 class ParserSpec extends FunSuite {
-  def parseFile(name: String): StateMachine = {
+  def parseFile(name: String): Specification = {
     val input = Source.fromInputStream(getClass.getClassLoader.getResourceAsStream(name)).mkString
-    StateMachineParser.parseAll(StateMachineParser.stateMachine, input) match {
-      case StateMachineParser.Failure(msg, remaining) =>
+    SpecificationParser.parseAll(SpecificationParser.specification, input) match {
+      case SpecificationParser.Failure(msg, remaining) =>
         val nextInput = remaining.source.toString.substring(remaining.offset).takeWhile(_ != '\n')
         fail(s"Syntax Error: $msg at ${remaining.pos.toString} ($nextInput)")
-      case StateMachineParser.Error(msg, _) =>
+      case SpecificationParser.Error(msg, _) =>
         fail(s"Parser Error: $msg")
-      case StateMachineParser.Success(stateMachine, _) =>
-        stateMachine
+      case SpecificationParser.Success(specification, _) =>
+        specification
     }
   }
 
   test("Parsing a minimal state machine") {
-    val stateMachine = parseFile("minimal.txt")
-    println(stateMachine)
+    val spec = parseFile("minimal.txt")
+    println(spec)
     println("------------")
-    stateMachine.validate() match {
+    spec.stateMachine.validate() match {
       case None =>
-        println(Solidity.writeStateMachine(stateMachine))
+        println(Solidity.writeSpecification(spec))
         println("----")
-        println(PlusCal.writeStateMachine(stateMachine))
+        println(PlusCal.writeSpecification(spec))
       case Some(err) => println(err)
     }
   }
 
   test("Parsing equipment warranty state machine") {
-    val stateMachine = parseFile("equipment.txt")
-    println(stateMachine)
+    val spec = parseFile("equipment.txt")
+    println(spec)
     println("------------")
-    stateMachine.validate() match {
+    spec.stateMachine.validate() match {
       case None =>
-        println(Solidity.writeStateMachine(stateMachine))
+        println(Solidity.writeSpecification(spec))
         println("----")
-        println(PlusCal.writeStateMachine(stateMachine))
+        println(PlusCal.writeSpecification(spec))
       case Some(err) => println(err)
     }
   }
 
   test("Parsing auction state machine") {
-    val stateMachine = parseFile("auction.txt")
-    println(stateMachine)
+    val spec = parseFile("auction.txt")
+    println(spec)
     println("---------")
-    stateMachine.validate() match {
+    spec.stateMachine.validate() match {
       case None =>
-        println(Solidity.writeStateMachine(stateMachine))
+        println(Solidity.writeSpecification(spec))
         println("----")
-        println(PlusCal.writeStateMachine(stateMachine))
+        println(PlusCal.writeSpecification(spec))
       case Some(err) => println(err)
     }
   }
