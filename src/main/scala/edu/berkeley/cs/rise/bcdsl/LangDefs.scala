@@ -155,7 +155,7 @@ case class ArithmeticExpression(left: Expression, operator: ArithmeticOperator, 
   ) yield resultTy
 }
 
-case class LTLProperty(operator: LTLOperator, body: Expression)
+case class LTLProperty(operator: LTLOperator, body: Either[LTLProperty, Expression])
 
 sealed trait AuthDecl {
   def extractIdentities: Set[String]

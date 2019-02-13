@@ -104,11 +104,10 @@ object SpecificationParser extends JavaTokenParsers {
   def ltlOperator: Parser[LTLOperator] = "[]" ^^^ Always |
     "<>" ^^^ Eventually
 
-  def ltlProperty: Parser[LTLProperty] = ltlOperator ~ "(" ~ logicalExpression <~ ")" ^^
-    { case op ~ "(" ~ expr => LTLProperty(op, expr) }
+  def ltlProperty: Parser[LTLProperty] = ltlOperator ~ "(" ~ logicalExpression <~ ")" ^^ { case op ~ "(" ~ expr => LTLProperty(op, Right(expr)) } |
+    ltlOperator ~ "(" ~ ltlProperty <~ ")" ^^ { case op ~ "(" ~ prop => LTLProperty(op, Left(prop))}
 
   def propertySpec: Parser[Seq[LTLProperty]] = "properties" ~ "{" ~> rep(ltlProperty) <~ "}"
 
-  def specification: Parser[Specification] = "contract" ~> ident ~ "{" ~ stateMachine ~ "}" ~ opt(propertySpec) ^^
-    { case name ~ "{" ~ stateMachine ~ "}" ~ props => Specification(name, stateMachine, props) }
+  def specification: Parser[Specification] = "contract" ~> ident ~ "{" ~ stateMachine ~ "}" ~ opt(propertySpec) ^^ { case name ~ "{" ~ stateMachine ~ "}" ~ props => Specification(name, stateMachine, props) }
 }
