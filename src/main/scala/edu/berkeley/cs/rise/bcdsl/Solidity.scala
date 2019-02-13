@@ -2,6 +2,7 @@ package edu.berkeley.cs.rise.bcdsl
 
 object Solidity {
   private val INDENTATION_STR: String = "    "
+  private val CURRENT_STATE_VAR: String = "__currentState"
 
   private def writeType(ty: DataType): String =
     ty match {
@@ -116,7 +117,7 @@ object Solidity {
 
     transition.origin.foreach { o =>
       builder.append(INDENTATION_STR * 2)
-      builder.append(s"require(currentState == State.$o);\n")
+      builder.append(s"require($CURRENT_STATE_VAR == State.$o);\n")
     }
 
     // These transitions are all distinct from the current transition, but we need to interpose them
@@ -131,7 +132,7 @@ object Solidity {
 
       if (t.destination != t.origin.get) {
         builder.append(INDENTATION_STR * 3)
-        builder.append(s"currentState = State.${t.destination};\n")
+        builder.append(s"$CURRENT_STATE_VAR = State.${t.destination};\n")
       }
       t.body.foreach(_.foreach { statement =>
         builder.append(INDENTATION_STR * 3)
@@ -179,7 +180,7 @@ object Solidity {
     if (transition.origin.getOrElse("") != transition.destination) {
       // We don't need this for a self-loop
       builder.append(INDENTATION_STR * 2)
-      builder.append(s"currentState = State.${transition.destination};\n")
+      builder.append(s"$CURRENT_STATE_VAR = State.${transition.destination};\n")
     }
 
     transition.body.foreach(_.foreach { statement =>
@@ -210,7 +211,7 @@ object Solidity {
   private def writeApprovalVar(transition: Transition, principal: String): String =
   // Validation ensures that transition must have an origin
   // Only non-initial transitions can have authorization restrictions
-    s"${transition.name}_${principal}Approved"
+    s"__${transition.name}_${principal}Approved"
 
   private def writeAuthClause(transition: Transition, authDecl: AuthDecl): String =
     authDecl match {
@@ -255,7 +256,7 @@ object Solidity {
 
       stateMachine.fields foreach { f => builder.append(writeField(f)) }
       builder.append(INDENTATION_STR)
-      builder.append("State public currentState;\n")
+      builder.append(s"State public $CURRENT_STATE_VAR;\n")
       builder.append(writeAuthorizationFields(stateMachine))
       builder.append("\n")
 
