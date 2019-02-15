@@ -4,6 +4,9 @@ object PlusCal {
 
   private val INDENTATION_STR = "    "
   private val BUILT_IN_CONSTANTS = Seq("MAX_INT, MIN_INT, MAX_TIMESTEP")
+  private val CONTRACT_BALANCE_VAR = "__contractBalance"
+  private val CALL_DEPTH_VAR = "__contractCallDepth"
+  private val CURRENT_TIME_VAR = "__currentTime"
   private var labelCounter = 0
 
   private def writeDomain(ty: DataType): String = ty match {
@@ -17,7 +20,7 @@ object PlusCal {
   }
 
   private def writeZeroElement(ty: DataType): String = ty match {
-    case Identity => "ZERO"
+    case Identity => "ZERO_IDENT"
     case Int => "0"
     case String => "\"\""
     case Timestamp => "0"
@@ -77,7 +80,7 @@ object PlusCal {
         case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
         case IntConst(v) => builder.append(v)
         case StringLiteral(s) => builder.append("\"" + s + "\"")
-        case Now => builder.append("currentTime")
+        case Now => builder.append(s"$CURRENT_TIME_VAR")
         case Sender => builder.append("sender")
         case BoolConst(b) => builder.append(b.toString.toUpperCase)
         case Second => builder.append("1")
@@ -236,9 +239,9 @@ object PlusCal {
   private def writeInvocationLoop(transitions: Seq[Transition]): String = {
     val builder = new StringBuilder()
     builder.append("procedure invokeContract(sender) begin InvokeContract:\n")
-    builder.append(INDENTATION_STR + "contractCallDepth := contractCallDepth + 1;\n")
-    builder.append(INDENTATION_STR + "with timeDelta \\in 1..MAX_TIMESTEP do\n")
-    builder.append(INDENTATION_STR * 2 + "currentTime := currentTime + timeDelta;\n")
+    builder.append(INDENTATION_STR + s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR + 1;\n")
+    builder.append(INDENTATION_STR + "with __timeDelta \\in 1..MAX_TIMESTEP do\n")
+    builder.append(INDENTATION_STR * 2 + s"$CURRENT_TIME_VAR := $CURRENT_TIME_VAR + __timeDelta;\n")
     builder.append(INDENTATION_STR + "end with;\n")
 
     builder.append("\nMethodCall:\n")
@@ -273,7 +276,7 @@ object PlusCal {
   private def writeSendFunction(): String = {
     val builder = new StringBuilder()
     builder.append("procedure sendTokens(sender, amount) begin SendTokens:\n")
-    builder.append(INDENTATION_STR + "contractBalance := contractBalance - amount;\n")
+    builder.append(INDENTATION_STR + s"$CONTRACT_BALANCE_VAR := $CONTRACT_BALANCE_VAR - amount;\n")
     builder.append("SendInvocation:\n")
     builder.append(INDENTATION_STR + "either\n")
     builder.append(INDENTATION_STR * 2 + "call invokeContract(sender);\n")
@@ -303,9 +306,9 @@ object PlusCal {
       builder.append(s"(* --fair algorithm $name\n")
 
       builder.append(s"variables currentState = ${initialState.toUpperCase},\n")
-      builder.append(INDENTATION_STR + "currentTime = 0,\n")
-      builder.append(INDENTATION_STR + "contractCallDepth = 0,\n")
-      builder.append(INDENTATION_STR + "contractBalance = 0")
+      builder.append(INDENTATION_STR + s"$CURRENT_TIME_VAR = 0,\n")
+      builder.append(INDENTATION_STR + s"$CALL_DEPTH_VAR = 0,\n")
+      builder.append(INDENTATION_STR + s"$CONTRACT_BALANCE_VAR = 0")
       builder.append(writeTransitionApprovalFields(stateMachine))
 
       if (stateMachine.fields.nonEmpty) {
