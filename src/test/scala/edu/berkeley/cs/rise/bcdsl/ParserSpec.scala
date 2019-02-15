@@ -53,6 +53,10 @@ class ParserSpec extends FunSuite {
         println(Solidity.writeSpecification(spec))
         println("----")
         println(PlusCal.writeSpecification(spec))
+        println("----")
+        println(TLA.writeSpecificationToAux(spec))
+        println("----")
+        println(TLA.writeSpecificationToConfig(spec))
       case Some(err) => println(err)
     }
   }

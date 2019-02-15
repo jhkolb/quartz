@@ -1,0 +1,129 @@
+package edu.berkeley.cs.rise.bcdsl
+
+object TLA {
+  val MODEL_CONSTANTS: Map[String, String] = Map(elems =
+    "MAX_TIMESTEP" -> "5",
+    "MIN_INT" -> "-1000",
+    "MAX_INT" -> "1000",
+    "MAX_CALL_DEPTH" -> "5",
+  )
+  val ZERO_IDENTITY_NAME = "ZERO_IDENT"
+
+  def mangleName(name: String): String = "__" + name.toLowerCase
+
+  def writeSpecificationToAux(specification: Specification): String = specification match {
+    case Specification(name, _, invariants) =>
+      val builder = new StringBuilder()
+      builder.append("---- MODULE MC ----\n")
+      builder.append(s"EXTENDS $name, TLC\n")
+
+      MODEL_CONSTANTS.foreach { case (constName, constValue) =>
+        builder.append(s"${mangleName(constName)} == $constValue\n")
+      }
+
+      invariants.foreach(_.zipWithIndex.foreach { case (prop, idx) =>
+        builder.append(s"__property_$idx == ${writeLTLProperty(prop)}\n")
+      })
+
+      builder.append("=" * 10)
+      builder.toString()
+  }
+
+  def writeSpecificationToConfig(specification: Specification): String = specification match {
+    case Specification(_, stateMachine, invariants) =>
+      val builder = new StringBuilder()
+
+      builder.append("CONSTANT defaultInitValue = defaultInitValue\n")
+      // Pull in Spec definition from PlusCal file
+      builder.append("SPECIFICATION Spec\n")
+      // Treat states as symbolic constants
+      stateMachine.states.map(_.toUpperCase).foreach(name => builder.append(s"CONSTANT $name = $name\n"))
+
+      // Treat identities as symbolic constants, add in zero identity
+      stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase()).foreach(id => builder.append(s"CONSTANT $id = $id\n"))
+      builder.append(s"CONSTANT $ZERO_IDENTITY_NAME = $ZERO_IDENTITY_NAME\n")
+
+      // Load in constants from auxiliary file
+      MODEL_CONSTANTS.keys.foreach(constName => builder.append(s"CONSTANT $constName <- ${mangleName(constName)}\n"))
+      invariants.foreach(_.indices.foreach(i => builder.append(s"PROPERTY __property_$i\n")))
+
+      builder.toString()
+  }
+
+  private def writeLTLProperty(property: LTLProperty): String = property match {
+    case LTLProperty(op, Left(prop)) => s"${writeLTLOperator(op)}(${writeLTLProperty(prop)})\n"
+    case LTLProperty(op, Right(expr)) => expr match {
+      case ValueExpression(VarRef(name)) => s"${writeLTLOperator(op)}(__currentState = ${name.toUpperCase()})"
+      case _ => s"${writeLTLOperator(op)}(${writeExpression(expr)})"
+    }
+  }
+
+  private def writeLTLOperator(operator: LTLOperator): String = operator match {
+    case Always => "[]"
+    case Eventually => "<>"
+  }
+
+  private def writeExpression(expression: Expression): String = {
+    val builder = new StringBuilder()
+    expression match {
+      case ValueExpression(value) => value match {
+        case VarRef(name) => builder.append(name)
+        case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
+        case IntConst(v) => builder.append(v)
+        case StringLiteral(s) => builder.append("\"" + s + "\"")
+        case Now => builder.append("currentTime")
+        case Sender => builder.append("sender")
+        case BoolConst(b) => builder.append(b.toString.toUpperCase)
+        case Second => builder.append("1")
+        case Minute => builder.append("60")
+        case Hour => builder.append("3600")
+        case Day => builder.append("86400")
+        case Week => builder.append("604800")
+      }
+
+      case ArithmeticExpression(left, op, right) =>
+        left match {
+          case ValueExpression(_) => builder.append(writeExpression(left))
+          case _ => builder.append(s"(${writeExpression(left)})")
+        }
+
+        op match {
+          case Plus => builder.append(" + ")
+          case Minus => builder.append(" - ")
+          case Multiply => builder.append(" * ")
+          case Divide => builder.append(" / ")
+        }
+
+        right match {
+          case ValueExpression(_) => builder.append(writeExpression(right))
+          case _ => builder.append(s"(${writeExpression(right)})")
+        }
+
+      case LogicalExpression(left, op, right) =>
+        left match {
+          case ValueExpression(_) => builder.append(writeExpression(left))
+          case _ => builder.append(s"(${writeExpression(left)})")
+        }
+
+        op match {
+          case LessThan => builder.append(" < ")
+          case LessThanOrEqual => builder.append(" <= ")
+          case Equal => builder.append(" = ")
+          case NotEqual => builder.append(" /= ")
+          case GreaterThanOrEqual => builder.append(" >= ")
+          case GreaterThan => builder.append(" > ")
+          case And => builder.append(" /\\ ")
+          case Or => builder.append(" \\/ ")
+        }
+
+        right match {
+          case ValueExpression(_) => builder.append(writeExpression(right))
+          case _ => builder.append(s"(${writeExpression(right)})")
+        }
+    }
+
+    builder.toString()
+  }
+}
+
+

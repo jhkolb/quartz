@@ -31,6 +31,6 @@ contract Auction {
 }
 
 properties {
-    [](contractBalance >= 0)
+    [](balance >= 0)
     [](<>(closed))
 }

@@ -3,14 +3,15 @@ package edu.berkeley.cs.rise.bcdsl
 object PlusCal {
 
   private val INDENTATION_STR = "    "
-  private val BUILT_IN_CONSTANTS = Seq("MAX_INT, MIN_INT, MAX_TIMESTEP")
-  private val CONTRACT_BALANCE_VAR = "__contractBalance"
+  private val BUILT_IN_CONSTANTS = Seq("MAX_INT, MIN_INT, MAX_TIMESTEP", "MAX_CALL_DEPTH")
+  private val CONTRACT_BALANCE_VAR = "balance"
   private val CALL_DEPTH_VAR = "__contractCallDepth"
   private val CURRENT_TIME_VAR = "__currentTime"
+  private val CURRENT_STATE_VAR = "__currentState"
   private var labelCounter = 0
 
   private def writeDomain(ty: DataType): String = ty match {
-    case Identity => "IDENTITIES \\ {ZERO}"
+    case Identity => "IDENTITIES \\ {ZERO_IDENT}"
     case Int => "MIN_INT..MAX_INT"
     case Bool => "{ TRUE, FALSE }"
     case Timestamp => "0..MAX_INT"
@@ -163,7 +164,7 @@ object PlusCal {
 
     transition.origin.foreach { o =>
       builder.append(INDENTATION_STR)
-      builder.append(s"if currentState /= ${o.toUpperCase()} then\n")
+      builder.append(s"if $CURRENT_STATE_VAR /= ${o.toUpperCase} then\n")
       builder.append(INDENTATION_STR * 2 + "return;\n")
       builder.append(INDENTATION_STR + "end if;\n")
       builder.append(nextLabel() + "\n")
@@ -217,7 +218,7 @@ object PlusCal {
 
     if (transition.origin.getOrElse("") != transition.destination) {
       builder.append(INDENTATION_STR)
-      builder.append(s"currentState := ${transition.destination.toUpperCase};\n")
+      builder.append(s"$CURRENT_STATE_VAR := ${transition.destination.toUpperCase};\n")
     }
     transition.body.foreach(_.foreach { statement =>
       builder.append(INDENTATION_STR)
@@ -296,7 +297,7 @@ object PlusCal {
       builder.append("EXTENDS Integers, Sequences, TLC\n")
 
       val stateNames = stateMachine.states.map(_.toUpperCase)
-      val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase()) :+ "ZERO"
+      val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase) :+ "ZERO_IDENT"
       builder.append(s"CONSTANTS ${BUILT_IN_CONSTANTS.mkString(", ")}\n")
       builder.append(s"CONSTANTS ${stateNames.mkString(", ")}\n")
       builder.append(s"CONSTANTS ${identityNames.mkString(", ")}\n")
@@ -305,7 +306,7 @@ object PlusCal {
 
       builder.append(s"(* --fair algorithm $name\n")
 
-      builder.append(s"variables currentState = ${initialState.toUpperCase},\n")
+      builder.append(s"variables $CURRENT_STATE_VAR = ${initialState.toUpperCase},\n")
       builder.append(INDENTATION_STR + s"$CURRENT_TIME_VAR = 0,\n")
       builder.append(INDENTATION_STR + s"$CALL_DEPTH_VAR = 0,\n")
       builder.append(INDENTATION_STR + s"$CONTRACT_BALANCE_VAR = 0")
