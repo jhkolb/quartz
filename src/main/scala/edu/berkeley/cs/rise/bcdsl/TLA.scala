@@ -1,15 +1,15 @@
 package edu.berkeley.cs.rise.bcdsl
 
 object TLA {
-  val MODEL_CONSTANTS: Map[String, String] = Map(elems =
+  private val MODEL_CONSTANTS: Map[String, String] = Map(elems =
     "MAX_TIMESTEP" -> "5",
     "MIN_INT" -> "-1000",
     "MAX_INT" -> "1000",
     "MAX_CALL_DEPTH" -> "5",
   )
-  val ZERO_IDENTITY_NAME = "ZERO_IDENT"
+  private val ZERO_IDENTITY_NAME = "ZERO_IDENT"
 
-  def mangleName(name: String): String = "__" + name.toLowerCase
+  private def mangleName(name: String): String = "__" + name.toLowerCase
 
   def writeSpecificationToAux(specification: Specification): String = specification match {
     case Specification(name, _, invariants) =>
