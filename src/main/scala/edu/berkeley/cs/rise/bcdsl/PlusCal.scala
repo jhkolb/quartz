@@ -3,10 +3,10 @@ package edu.berkeley.cs.rise.bcdsl
 object PlusCal {
 
   private val INDENTATION_STR = "    "
-  private val BUILT_IN_CONSTANTS = Seq("MAX_INT, MIN_INT, MAX_TIMESTEP", "MAX_CALL_DEPTH")
+  private val BUILT_IN_CONSTANTS = Seq("MAX_INT, MIN_INT, MAX_TIMESTEP", "MAX_ELAPSED_TIME", "MAX_CALL_DEPTH")
   private val CONTRACT_BALANCE_VAR = "balance"
-  private val CALL_DEPTH_VAR = "__contractCallDepth"
-  private val CURRENT_TIME_VAR = "__currentTime"
+  private[bcdsl] val CALL_DEPTH_VAR = "__contractCallDepth"
+  private[bcdsl] val CURRENT_TIME_VAR = "__currentTime"
   private val CURRENT_STATE_VAR = "__currentState"
   private var labelCounter = 0
 
@@ -155,9 +155,8 @@ object PlusCal {
   private def writeTransition(transition: Transition): String = {
     val builder = new StringBuilder()
     builder.append(s"procedure ${transition.name}(")
-    transition.parameters.foreach { params =>
-      builder.append(params.map(_.name).mkString(", "))
-    }
+    val effectiveParameters = Variable("sender", Identity) +: transition.parameters.getOrElse(Seq.empty[Variable])
+    builder.append(effectiveParameters.map(_.name).mkString(", "))
     builder.append(")")
     builder.append(s" begin ${transition.name}:\n")
 
@@ -232,9 +231,9 @@ object PlusCal {
     builder.toString()
   }
 
-  private def writeTransitionArgumentSelection(transition: Transition): String =
+  private def writeTransitionArgumentSelection(parameters: Seq[Variable]): String =
   // Add "_arg" suffix to avoid name collisions in the TLA+ that gets produced from this PlusCal
-    "with " + transition.parameters.get.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
+    "with " + parameters.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
 
   // TODO code cleanup
   private def writeInvocationLoop(transitions: Seq[Transition]): String = {
@@ -247,21 +246,32 @@ object PlusCal {
 
     builder.append("\nMethodCall:\n")
     if (transitions.length == 1) {
-      builder.append(INDENTATION_STR + writeTransitionArgumentSelection(transitions.head) + "\n")
-      builder.append(INDENTATION_STR * 2)
-      builder.append(s"call ${transitions.head.name}(")
-      builder.append(transitions.head.parameters.get.map(_.name))
+      val t = transitions.head
+      t.parameters.foreach(params => {
+        builder.append(INDENTATION_STR + writeTransitionArgumentSelection(params) + "\n")
+        builder.append(INDENTATION_STR)
+      })
+      builder.append(INDENTATION_STR)
+      builder.append(s"call ${t.name}(")
+      builder.append(("sender" +: t.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", "))
       builder.append(");\n")
-      builder.append(INDENTATION_STR + "end with;")
+      if (t.parameters.isDefined) {
+        builder.append(INDENTATION_STR + "end with;")
+      }
     } else {
       builder.append(INDENTATION_STR + "either\n")
       transitions.zipWithIndex.foreach { case (transition, idx) =>
-        builder.append(INDENTATION_STR * 2 + writeTransitionArgumentSelection(transition) + "\n")
-        builder.append(INDENTATION_STR * 3 + s"call ${transition.name}(")
+        transition.parameters.foreach { params =>
+          builder.append(INDENTATION_STR * 2 + writeTransitionArgumentSelection(params) + "\n")
+          builder.append(INDENTATION_STR)
+        }
+        builder.append(INDENTATION_STR * 2 + s"call ${transition.name}(")
         // Again, add "_arg" suffix to avoid name collisions in TLA+
-        builder.append(transition.parameters.get.map(_.name + "_arg").mkString(", "))
+        builder.append(("sender" +: transition.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", "))
         builder.append(");\n")
-        builder.append(INDENTATION_STR * 2 + "end with;\n")
+        if (transition.parameters.isDefined) {
+          builder.append(INDENTATION_STR * 2 + "end with;\n")
+        }
 
         if (idx < transitions.length - 1) {
           builder.append(INDENTATION_STR + "or\n")
@@ -269,21 +279,26 @@ object PlusCal {
       }
       builder.append(INDENTATION_STR + "end either;\n")
     }
-
+    builder.append(nextLabel() + "\n")
+    builder.append(INDENTATION_STR + s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR - 1;\n")
+    builder.append(INDENTATION_STR + "return;\n")
     builder.append("end procedure;\n")
     builder.toString()
   }
 
   private def writeSendFunction(): String = {
     val builder = new StringBuilder()
-    builder.append("procedure sendTokens(sender, amount) begin SendTokens:\n")
+    builder.append("procedure sendTokens(recipient, amount) begin SendTokens:\n")
     builder.append(INDENTATION_STR + s"$CONTRACT_BALANCE_VAR := $CONTRACT_BALANCE_VAR - amount;\n")
     builder.append("SendInvocation:\n")
     builder.append(INDENTATION_STR + "either\n")
-    builder.append(INDENTATION_STR * 2 + "call invokeContract(sender);\n")
+    builder.append(INDENTATION_STR * 2 + "call invokeContract(recipient);\n")
+    builder.append(INDENTATION_STR * 2 + "goto SendInvocation;\n")
     builder.append(INDENTATION_STR + "or\n")
     builder.append(INDENTATION_STR * 2 + "skip;\n")
     builder.append(INDENTATION_STR + "end either;\n")
+    builder.append(nextLabel() + "\n")
+    builder.append(INDENTATION_STR + "return;\n")
     builder.append("end procedure;\n")
     builder.toString()
   }
@@ -318,14 +333,8 @@ object PlusCal {
       }
       builder.append(";\n\n")
 
-      // Add synthetic "sender" parameter to all transitions
-      val augmentedTransitions = stateMachine.transitions.map { case Transition(tName, origin, destination, parameters, authorized, auto, guard, body) =>
-        val newParameters = Variable("sender", Identity) +: parameters.getOrElse(Seq.empty[Variable])
-        Transition(tName, origin, destination, Some(newParameters), authorized, auto, guard, body)
-      }
-
-      val initialTransition = augmentedTransitions.filter(_.origin.isEmpty).head
-      val standardTransitions = augmentedTransitions.filter(_.origin.isDefined)
+      val initialTransition = stateMachine.transitions.filter(_.origin.isEmpty).head
+      val standardTransitions = stateMachine.transitions.filter(_.origin.isDefined)
       builder.append(writeTransition(initialTransition))
       standardTransitions.foreach(t => builder.append(writeTransition(t)))
 
@@ -337,22 +346,19 @@ object PlusCal {
       builder.append("\nbegin Main:\n")
       // Add the usual "_arg" suffix to prevent name collisions in TLA+
       builder.append(INDENTATION_STR + "with ")
-      builder.append(initialTransition.parameters.get.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", "))
+      val initialParams = Variable("sender", Identity) +: initialTransition.parameters.getOrElse(Seq.empty[Variable])
+      builder.append(initialParams.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", "))
       builder.append(" do\n")
       builder.append(INDENTATION_STR * 2)
-      builder.append(s"call ${initialTransition.name}(${initialTransition.parameters.get.map(_.name + "_arg").mkString(", ")});\n")
+      builder.append(s"call ${initialTransition.name}(${initialParams.map(_.name + "_arg").mkString(", ")});\n")
       builder.append(INDENTATION_STR + "end with;\n")
 
       builder.append("\nLoop:\n")
-      builder.append(INDENTATION_STR + s"with senderArg \\in ${writeDomain(Identity)} do\n")
-      builder.append(INDENTATION_STR * 2 + "call invokeContract(senderArg);\n")
+      builder.append(INDENTATION_STR + s"with sender_arg \\in ${writeDomain(Identity)} do\n")
+      builder.append(INDENTATION_STR * 2 + "call invokeContract(sender_arg);\n")
       builder.append(INDENTATION_STR + "end with;\n")
       builder.append(nextLabel() + "\n")
-      builder.append(INDENTATION_STR + "either\n")
-      builder.append(INDENTATION_STR * 2 + "goto Loop;\n")
-      builder.append(INDENTATION_STR + "or\n")
-      builder.append(INDENTATION_STR * 2 + "skip;\n")
-      builder.append(INDENTATION_STR + "end either;\n")
+      builder.append(INDENTATION_STR + "goto Loop;\n")
 
       builder.append("end algorithm; *)\n")
       builder.append("========")

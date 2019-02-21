@@ -3,10 +3,17 @@ package edu.berkeley.cs.rise.bcdsl
 object TLA {
   private val MODEL_CONSTANTS: Map[String, String] = Map(elems =
     "MAX_TIMESTEP" -> "5",
+    "MAX_ELAPSED_TIME" -> "11",
     "MIN_INT" -> "-1000",
     "MAX_INT" -> "1000",
     "MAX_CALL_DEPTH" -> "5",
   )
+
+  private val MODEL_CONSTRAINTS: Seq[String] = Seq(
+    s"${PlusCal.CALL_DEPTH_VAR} <= __max_call_depth",
+    s"${PlusCal.CURRENT_TIME_VAR} <= __max_elapsed_time",
+  )
+
   private val ZERO_IDENTITY_NAME = "ZERO_IDENT"
 
   private def mangleName(name: String): String = "__" + name.toLowerCase
@@ -21,9 +28,14 @@ object TLA {
         builder.append(s"${mangleName(constName)} == $constValue\n")
       }
 
-      invariants.foreach(_.zipWithIndex.foreach { case (prop, idx) =>
-        builder.append(s"__property_$idx == ${writeLTLProperty(prop)}\n")
+      invariants.foreach(_.zipWithIndex.foreach { case (prop, i) =>
+        builder.append(s"__property_$i == ${writeLTLProperty(prop)}\n")
       })
+
+      // Write constraints on model checking domain
+      MODEL_CONSTRAINTS.zipWithIndex.foreach { case (constraint, i) =>
+        builder.append(s"__constraint_$i == $constraint\n")
+      }
 
       builder.append("=" * 10)
       builder.toString()
@@ -45,7 +57,9 @@ object TLA {
 
       // Load in constants from auxiliary file
       MODEL_CONSTANTS.keys.foreach(constName => builder.append(s"CONSTANT $constName <- ${mangleName(constName)}\n"))
+
       invariants.foreach(_.indices.foreach(i => builder.append(s"PROPERTY __property_$i\n")))
+      MODEL_CONSTRAINTS.indices.foreach(i => builder.append(s"CONSTRAINT __constraint_$i\n"))
 
       builder.toString()
   }
