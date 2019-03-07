@@ -3,9 +3,89 @@ package edu.berkeley.cs.rise.bcdsl
 case class Variable(name: String, ty: DataType)
 
 case class Transition(name: String, origin: Option[String], destination: String, parameters: Option[Seq[Variable]],
-                      authorized: Option[AuthDecl], auto: Boolean, guard: Option[Expression],
-                      body: Option[Seq[Statement]]) {
-  val description: String = s"'${origin.getOrElse("")}' -> '$destination'"
+                      authorized: Option[AuthDecl], auto: Boolean, guard: Option[Expression], body: Option[Seq[Statement]]) {
+  val description: String = s"$name: '${origin.getOrElse("")}' -> '$destination'"
+
+  private def makeTypeErrMsg(idx: Int, msg: String): String =
+    s"Type error on statement ${idx + 1} of transition $description: $msg"
+
+  def validate(context: Map[String, DataType], principals: Set[String]): Option[String] = {
+    val paramsMap = parameters.fold(Map.empty[String, DataType]) { params =>
+      params.map(variable => variable.name -> variable.ty).toMap
+    }
+    // Check that transition parameters do not shadow previously defined variables
+    paramsMap.keySet.intersect(context.keySet).headOption.foreach { shadowed =>
+      return Some(s"Transition $description shadows field or keyword $shadowed")
+    }
+    // And check that any constrained parameters are of the correct type
+    val constrainedNames = paramsMap.keySet.intersect(Specification.CONSTRAINED_PARAMS.keySet)
+    constrainedNames.foreach { name =>
+      val actualTy = paramsMap(name)
+      val expectedTy = Specification.CONSTRAINED_PARAMS(name)
+      if (actualTy != expectedTy) {
+        return Some(s"Special parameter $name is of type $actualTy when it must be of type $expectedTy")
+      }
+    }
+    val localContext = context ++ paramsMap
+
+    // Check that transition is not designated as automatic but has an authorization restriction
+    if (auto && authorized.isDefined) {
+      return Some(s"Automatic transition $description cannot have authorization restriction")
+    }
+    // Check that transition is not designated as automatic but lacks a guard
+    if (auto && guard.isEmpty) {
+      return Some(s"Automatic transition $description lacks a guard")
+    }
+
+    // Check that transition guard is correctly typed
+    for (expr <- guard) {
+      expr.getType(localContext) match {
+        case Left(err) => return Some(s"Invalid guard in transition $description: $err")
+        case Right(Bool) => ()
+        case Right(ty) => return Some(s"Guard in transition $description is of non-boolean type $ty")
+      }
+    }
+
+    // Check that authorization clause does not reference undefined identities
+    for (authDecl <- authorized) {
+      val ids = authDecl.extractIdentities
+      val unknownIds = ids.diff(principals)
+      if (unknownIds.nonEmpty) {
+        return Some(s"Transition $description references unknown identities: ${unknownIds.mkString(", ")}")
+      }
+    }
+
+    // Check that transition body doesn't reference undefined fields
+    // And type check all field assignments
+    for ((statement, i) <- body.getOrElse(Seq.empty[Statement]).zipWithIndex) {
+      statement match {
+        case Assignment(lhs, rhs) =>
+          val leftRes = lhs.getType(localContext)
+          val rightRes = rhs.getType(localContext)
+          (leftRes, rightRes) match {
+            case (Left(err), _) => return Some(makeTypeErrMsg(i, err))
+            case (_, Left(err)) => return Some(makeTypeErrMsg(i, err))
+            case (Right(leftTy), Right(rightTy)) if leftTy != rightTy => return Some(makeTypeErrMsg(i,
+              s"Left-hand type $leftTy does not match right-hand type of $rightTy"))
+            case (Right(_), Right(_)) => ()
+          }
+
+        case Send(sendDest, amount) =>
+          val destRes = sendDest.getType(localContext)
+          val amountRes = amount.getType(localContext)
+          (destRes, amountRes) match {
+            case (Left(err), _) => return Some(makeTypeErrMsg(i, err))
+            case (_, Left(err)) => return Some(makeTypeErrMsg(i, err))
+            case (Right(Identity), Right(Int)) => () // This is the case we want
+            case (Right(destTy), Right(Int)) if destTy != Identity => return Some(makeTypeErrMsg(i,
+              s"Expected send destination of type Identity, but found $destTy"))
+            case (Right(Identity), Right(amountTy)) => return Some(makeTypeErrMsg(i,
+              s"Expected amount destination of type Int, but found $amountTy"))
+          }
+      }
+    }
+    None
+  }
 }
 
 case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
@@ -14,6 +94,11 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
   }
 
   def validate(): Option[String] = {
+    // Check that no fields shadow a reserved value
+    fields.map(_.name).toSet.intersect(Specification.RESERVED_VALUES.keySet).headOption.foreach { name =>
+      return Some(s"State machine field $name shadows reserved value")
+    }
+
     // Check that only one transition is missing a source, this indicates the initial state
     val initialTransitions = transitions.filter(_.origin.isEmpty)
     if (initialTransitions.isEmpty) {
@@ -48,74 +133,16 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
     }
 
     val principals = fields.filter(_.ty == Identity).map(_.name).toSet
-    val context = fields.foldLeft(Map.empty[String, DataType]) { (ctx, field) =>
+    val context = fields.foldLeft(Specification.RESERVED_VALUES) { (ctx, field) =>
       ctx + (field.name -> field.ty)
     }
-
     for (transition <- transitions) {
-      val localContext = transition.parameters.fold(context)(_.foldLeft(context) { (ctxt, param) =>
-        ctxt + (param.name -> param.ty)
-      })
-
-      // Check that transition is not designated as automatic but has an authorization restriction
-      if (transition.auto && transition.authorized.isDefined) {
-        return Some(s"Automatic transition ${transition.description} cannot have authorization restriction")
-      }
-      // Check that transition is not designated as automatic but lacks a guard
-      if (transition.auto && transition.guard.isEmpty) {
-        return Some(s"Automatic transition ${transition.description} lacks a guard")
-      }
-
-      // Check that transition guard is correctly typed
-      for (expr <- transition.guard) {
-        expr.getType(localContext) match {
-          case Left(err) => return Some(s"Invalid guard in transition ${transition.description}: $err")
-          case Right(Bool) => ()
-          case Right(ty) => return Some(s"Guard in transition ${transition.description} is of non-boolean type $ty")
-        }
-      }
-
-      // Check that authorization clause does not reference undefined identities
-      for (authDecl <- transition.authorized) {
-        val ids = authDecl.extractIdentities
-        val unknownIds = ids.diff(principals)
-        if (unknownIds.nonEmpty) {
-          return Some(s"Transition ${transition.description} references unknown identities: ${unknownIds.mkString(", ")}")
-        }
-      }
-
-      // Check that transition body doesn't reference undefined fields
-      // And type check all field assignments
-      for ((statement, i) <- transition.body.getOrElse(Seq.empty[Statement]).zipWithIndex) {
-        statement match {
-          case Assignment(lhs, rhs) =>
-            val leftRes = lhs.getType(localContext)
-            val rightRes = rhs.getType(localContext)
-            (leftRes, rightRes) match {
-              case (Left(err), _) => return Some(StateMachine.makeTypeErrMsg(transition, i, err))
-              case (_, Left(err)) => return Some(StateMachine.makeTypeErrMsg(transition, i, err))
-              case (Right(leftTy), Right(rightTy)) if leftTy != rightTy => return Some(StateMachine.makeTypeErrMsg(transition, i,
-                s"Left-hand type $leftTy does not match right=hand type of $rightTy"))
-              case (Right(_), Right(_)) => ()
-            }
-
-          case Send(destination, amount) =>
-            val destRes = destination.getType(localContext)
-            val amountRes = amount.getType(localContext)
-            (destRes, amountRes) match {
-              case (Left(err), _) => return Some(StateMachine.makeTypeErrMsg(transition, i, err))
-              case (_, Left(err)) => return Some(StateMachine.makeTypeErrMsg(transition, i, err))
-              case (Right(Identity), Right(Int)) => () // This is the case we want
-              case (Right(destTy), Right(Int)) if destTy != Identity => return Some(StateMachine.makeTypeErrMsg(transition, i,
-                s"Expected send destination of type Identity, but found $destTy"))
-              case (Right(Identity), Right(amountTy)) => return Some(StateMachine.makeTypeErrMsg(transition, i,
-                s"Expected amount destination of type Int, but found $amountTy"))
-            }
-        }
-      }
+      transition.validate(context, principals).foreach(err => return Some(err))
     }
+
     None
   }
+
 }
 
 object StateMachine {
@@ -134,7 +161,4 @@ object StateMachine {
           currentVisited ++ dfsVisit(neighbor, adjacencyList, currentVisited)
         }
     }
-
-  private def makeTypeErrMsg(transition: Transition, idx: Int, msg: String): String =
-    s"Type error on statement ${idx + 1} of transition ${transition.description}: $msg"
 }

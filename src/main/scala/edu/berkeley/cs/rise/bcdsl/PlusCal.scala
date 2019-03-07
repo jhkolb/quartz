@@ -10,6 +10,12 @@ object PlusCal {
   private val CURRENT_STATE_VAR = "__currentState"
   private var labelCounter = 0
 
+  private val RESERVED_NAME_TRANSLATIONS: Map[String, String] = Map[String, String](
+    "balance" -> "balance",
+    "sender" -> "sender",
+    "now" -> "__currentTime",
+  )
+
   private def writeDomain(ty: DataType): String = ty match {
     case Identity => "IDENTITIES \\ {ZERO_IDENT}"
     case Int => "MIN_INT..MAX_INT"
@@ -77,12 +83,10 @@ object PlusCal {
     val builder = new StringBuilder()
     expression match {
       case ValueExpression(value) => value match {
-        case VarRef(name) => builder.append(name)
+        case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
         case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
         case IntConst(v) => builder.append(v)
         case StringLiteral(s) => builder.append("\"" + s + "\"")
-        case Now => builder.append(s"$CURRENT_TIME_VAR")
-        case Sender => builder.append("sender")
         case BoolConst(b) => builder.append(b.toString.toUpperCase)
         case Second => builder.append("1")
         case Minute => builder.append("60")

@@ -23,9 +23,7 @@ object SpecificationParser extends JavaTokenParsers {
 
   def fieldList: Parser[Seq[Variable]] = "data" ~ "{" ~> rep(variableDecl) <~ "}"
 
-  def valueDecl: Parser[SimpleValue] = "now" ^^^ Now |
-    "sender" ^^^ Sender |
-    "true" ^^^ BoolConst(true) |
+  def valueDecl: Parser[SimpleValue] = "true" ^^^ BoolConst(true) |
     "false" ^^^ BoolConst(false) |
     "seconds" ^^^ Second |
     "minutes" ^^^ Minute |
@@ -105,7 +103,7 @@ object SpecificationParser extends JavaTokenParsers {
     "<>" ^^^ Eventually
 
   def ltlProperty: Parser[LTLProperty] = ltlOperator ~ "(" ~ logicalExpression <~ ")" ^^ { case op ~ "(" ~ expr => LTLProperty(op, Right(expr)) } |
-    ltlOperator ~ "(" ~ ltlProperty <~ ")" ^^ { case op ~ "(" ~ prop => LTLProperty(op, Left(prop))}
+    ltlOperator ~ "(" ~ ltlProperty <~ ")" ^^ { case op ~ "(" ~ prop => LTLProperty(op, Left(prop)) }
 
   def propertySpec: Parser[Seq[LTLProperty]] = "properties" ~ "{" ~> rep(ltlProperty) <~ "}"
 

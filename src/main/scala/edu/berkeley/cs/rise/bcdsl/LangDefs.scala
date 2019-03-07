@@ -30,15 +30,6 @@ case class IntConst(value: Int) extends SimpleValue {
 case class StringLiteral(value: String) extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(String)
 }
-
-case object Now extends SimpleValue {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Timestamp)
-}
-
-case object Sender extends SimpleValue {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Identity)
-}
-
 case class BoolConst(value: Boolean) extends SimpleValue {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Bool)
 }

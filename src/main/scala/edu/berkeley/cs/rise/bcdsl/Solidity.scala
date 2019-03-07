@@ -3,6 +3,11 @@ package edu.berkeley.cs.rise.bcdsl
 object Solidity {
   private val INDENTATION_STR: String = "    "
   private val CURRENT_STATE_VAR: String = "__currentState"
+  private val RESERVED_NAME_TRANSLATIONS: Map[String, String] = Map[String, String](
+    "balance" -> "balance",
+    "now" -> "now",
+    "sender" -> "msg.sender",
+  )
 
   private def writeType(ty: DataType): String =
     ty match {
@@ -22,12 +27,10 @@ object Solidity {
     val builder = new StringBuilder()
     expression match {
       case ValueExpression(value) => value match {
-        case VarRef(name) => builder.append(name)
+        case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
         case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
         case IntConst(v) => builder.append(v)
         case StringLiteral(s) => builder.append("\"" + s + "\"")
-        case Now => builder.append("now")
-        case Sender => builder.append("msg.sender")
         case BoolConst(b) => builder.append(b)
         case Second => builder.append("seconds")
         case Minute => builder.append("minutes")
@@ -99,7 +102,8 @@ object Solidity {
         case ValueExpression(_) => writeExpression(destination)
         case _ => s"(${writeExpression(destination)})"
       }
-      s"$destStr.transfer(${writeExpression(amount)})"
+      // TODO we just convert to uint as needed for now, but this assumes amount >= 0
+      s"$destStr.transfer(uint(${writeExpression(amount)}))"
   }
 
   private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {

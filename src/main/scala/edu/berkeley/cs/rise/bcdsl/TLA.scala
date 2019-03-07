@@ -16,6 +16,12 @@ object TLA {
 
   private val ZERO_IDENTITY_NAME = "ZERO_IDENT"
 
+  private val RESERVED_NAME_TRANSLATIONS = Map[String, String](
+    "balance" -> "balance",
+    "sender" -> "sender",
+    "now" -> "__currentTime",
+  )
+
   private def mangleName(name: String): String = "__" + name.toLowerCase
 
   def writeSpecificationToAux(specification: Specification): String = specification match {
@@ -81,12 +87,10 @@ object TLA {
     val builder = new StringBuilder()
     expression match {
       case ValueExpression(value) => value match {
-        case VarRef(name) => builder.append(name)
+        case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
         case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
         case IntConst(v) => builder.append(v)
         case StringLiteral(s) => builder.append("\"" + s + "\"")
-        case Now => builder.append("currentTime")
-        case Sender => builder.append("sender")
         case BoolConst(b) => builder.append(b.toString.toUpperCase)
         case Second => builder.append("1")
         case Minute => builder.append("60")

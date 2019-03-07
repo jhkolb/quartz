@@ -15,11 +15,11 @@ contract Auction {
         Duration = duration
     }
 
-    submitBid: open ->(bid: Int) open
-    requires [ bid > HighestBid ] {
+    submitBid: open ->(tokens: Int) open
+    requires [ tokens > HighestBid ] {
         Balances[HighestBidder] = Balances[HighestBidder] + HighestBid
         HighestBidder = sender
-        HighestBid = bid
+        HighestBid = tokens
     }
 
     withdraw: open -> open requires [ Balances[sender] > 0 ] {
