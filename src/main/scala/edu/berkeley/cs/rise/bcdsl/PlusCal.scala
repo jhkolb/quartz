@@ -8,13 +8,20 @@ object PlusCal {
   private[bcdsl] val CALL_DEPTH_VAR = "__contractCallDepth"
   private[bcdsl] val CURRENT_TIME_VAR = "__currentTime"
   private val CURRENT_STATE_VAR = "__currentState"
+
   private var labelCounter = 0
+  private var indentationLevel = 0
 
   private val RESERVED_NAME_TRANSLATIONS: Map[String, String] = Map[String, String](
     "balance" -> "balance",
     "sender" -> "sender",
     "now" -> "__currentTime",
   )
+
+  private def appendLine(builder: StringBuilder, line: String): Unit =
+    builder.append(s"${INDENTATION_STR * indentationLevel}$line\n")
+
+  private def writeLine(line: String): String = s"${INDENTATION_STR * indentationLevel}$line\n"
 
   private def writeDomain(ty: DataType): String = ty match {
     case Identity => "IDENTITIES \\ {ZERO_IDENT}"
@@ -45,9 +52,7 @@ object PlusCal {
   private def writeTransitionApprovalFields(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
     stateMachine.transitions.foreach(t => t.authorized.map(_.extractIdentities).filter(_.size > 1).foreach(_.foreach { id =>
-      builder.append(",\n")
-      builder.append(INDENTATION_STR)
-      builder.append(s"${writeTransitionApprovalVar(t, id)} = FALSE")
+      appendLine(builder, s"variable ${writeTransitionApprovalVar(t, id)} = FALSE")
     }))
 
     builder.toString()
@@ -139,15 +144,23 @@ object PlusCal {
     builder.toString()
   }
 
-  private def writeStatement(statement: Statement): String = statement match {
-    case Assignment(left, right) =>
-      val leftStr = left match {
-        case VarRef(name) => name
-        case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
-      }
-      s"$leftStr := ${writeExpression(right)};"
+  private def writeAssignable(assignable: Assignable): String = assignable match {
+    case VarRef(name) => name
+    case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
+  }
 
-    case Send(destination, amount) => s"call sendTokens(${writeExpression(destination)}, ${writeExpression(amount)});\n${nextLabel()}"
+  private def writeStatement(statement: Statement): String = statement match {
+    case Assignment(left, right) => writeLine(s"${writeAssignable(left)} := ${writeExpression(right)};")
+    case Send(destination, amount, source) => source match {
+      case None => writeLine(s"call sendTokens(${writeExpression(destination)}, ${writeExpression(amount)});") + nextLabel() + "\n"
+      case Some(s) =>
+        val builder = new StringBuilder()
+        appendLine(builder, s"__temporary := ${writeExpression(amount)};")
+        appendLine(builder, s"${writeAssignable(s)} := ${writeAssignable(s)} - __temporary;")
+        appendLine(builder, s"call sendTokens(${writeExpression(destination)}, __temporary);")
+        builder.append(nextLabel() + "\n")
+        builder.toString()
+    }
   }
 
   private def nextLabel(): String = {
@@ -158,80 +171,74 @@ object PlusCal {
 
   private def writeTransition(transition: Transition): String = {
     val builder = new StringBuilder()
-    builder.append(s"procedure ${transition.name}(")
     val effectiveParameters = Variable("sender", Identity) +: transition.parameters.getOrElse(Seq.empty[Variable])
-    builder.append(effectiveParameters.map(_.name).mkString(", "))
-    builder.append(")")
-    builder.append(s" begin ${transition.name}:\n")
-
+    val paramsRepr = effectiveParameters.map(_.name).mkString(", ")
+    appendLine(builder, s"procedure ${transition.name}($paramsRepr) begin ${transition.name}:")
+    indentationLevel += 1
 
     transition.origin.foreach { o =>
-      builder.append(INDENTATION_STR)
-      builder.append(s"if $CURRENT_STATE_VAR /= ${o.toUpperCase} then\n")
-      builder.append(INDENTATION_STR * 2 + "return;\n")
-      builder.append(INDENTATION_STR + "end if;\n")
+      appendLine(builder, s"if $CURRENT_STATE_VAR /= ${o.toUpperCase} then")
+      indentationLevel += 1
+      appendLine(builder,"return;")
+      indentationLevel -= 1
+      appendLine(builder, "end if;")
       builder.append(nextLabel() + "\n")
     }
 
     transition.guard.foreach { g =>
-      builder.append(INDENTATION_STR)
-      builder.append(s"if ~(${writeExpression(g)}) then\n")
-      builder.append(INDENTATION_STR * 2)
-      builder.append("return;\n")
-      builder.append(INDENTATION_STR)
-      builder.append("end if;\n")
+      appendLine(builder, s"if ~(${writeExpression(g)}) then")
+      indentationLevel += 1
+      appendLine(builder, "return;")
+      indentationLevel -= 1
+      appendLine(builder, "end if;")
       builder.append(nextLabel() + "\n")
     }
 
     transition.authorized.foreach { authDecl =>
       val identities = authDecl.extractIdentities.map(_.toUpperCase)
       if (identities.size == 1) {
-        builder.append(INDENTATION_STR)
-        builder.append(s"if sender /= ${identities.head} then\n")
-        builder.append(INDENTATION_STR * 2)
-        builder.append("return;\n")
-        builder.append(INDENTATION_STR)
-        builder.append("end if;\n")
+        appendLine(builder, s"if sender /= ${identities.head} then")
+        indentationLevel += 1
+        builder.append("return;")
+        indentationLevel -= 1
+        builder.append("end if;")
         builder.append(nextLabel() + "\n")
       } else {
-        builder.append(INDENTATION_STR)
-        builder.append(s"if sender = ${identities.head} then\n")
-        builder.append(INDENTATION_STR * 2)
-        builder.append(s"${writeTransitionApprovalVar(transition, identities.head)} := TRUE;\n")
+        appendLine(builder, s"if sender = ${identities.head} then")
+        indentationLevel += 1
+        appendLine(builder, s"${writeTransitionApprovalVar(transition, identities.head)} := TRUE;")
+        indentationLevel -= 1
 
         identities.tail.foreach { id =>
-          builder.append(INDENTATION_STR)
-          builder.append(s"elsif sender = $id then\n")
-          builder.append(INDENTATION_STR * 2)
-          builder.append(s"${writeTransitionApprovalVar(transition, id)} := TRUE;\n")
+          appendLine(builder, s"elsif sender = $id then")
+          indentationLevel += 1
+          appendLine(builder, s"${writeTransitionApprovalVar(transition, id)} := TRUE;")
+          indentationLevel -= 1
         }
-        builder.append(INDENTATION_STR)
-        builder.append("end if;\n")
+        appendLine(builder, "end if;")
         builder.append(nextLabel() + "\n")
 
-        builder.append(INDENTATION_STR)
-        builder.append(s"if ~(${writeAuthClause(transition, authDecl)}) then\n")
-        builder.append(INDENTATION_STR * 2)
-        builder.append("return;\n")
-        builder.append(INDENTATION_STR)
-        builder.append("end if;\n")
+        appendLine(builder, s"if ~(${writeAuthClause(transition, authDecl)}) then")
+        indentationLevel += 1
+        appendLine(builder, "return;")
+        indentationLevel -= 1
+        appendLine(builder, "end if;")
         builder.append(nextLabel() + "\n")
       }
     }
 
     if (transition.origin.getOrElse("") != transition.destination) {
-      builder.append(INDENTATION_STR)
-      builder.append(s"$CURRENT_STATE_VAR := ${transition.destination.toUpperCase};\n")
+      appendLine(builder, s"$CURRENT_STATE_VAR := ${transition.destination.toUpperCase};")
     }
     transition.body.foreach(_.foreach { statement =>
-      builder.append(INDENTATION_STR)
-      builder.append(s"${writeStatement(statement)}\n")
+      // Statements handle their own indentation
+      builder.append(s"${writeStatement(statement)}")
     })
 
-    builder.append(INDENTATION_STR)
-    builder.append("return;\n")
-    builder.append("end procedure;\n\n")
-
+    appendLine(builder, "return;")
+    indentationLevel -= 1
+    appendLine(builder, "end procedure;")
+    builder.append("\n")
     builder.toString()
   }
 
@@ -242,68 +249,83 @@ object PlusCal {
   // TODO code cleanup
   private def writeInvocationLoop(transitions: Seq[Transition]): String = {
     val builder = new StringBuilder()
-    builder.append("procedure invokeContract(sender) begin InvokeContract:\n")
-    builder.append(INDENTATION_STR + s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR + 1;\n")
-    builder.append(INDENTATION_STR + "with __timeDelta \\in 1..MAX_TIMESTEP do\n")
-    builder.append(INDENTATION_STR * 2 + s"$CURRENT_TIME_VAR := $CURRENT_TIME_VAR + __timeDelta;\n")
-    builder.append(INDENTATION_STR + "end with;\n")
-
-    builder.append("\nMethodCall:\n")
+    appendLine(builder, "procedure invokeContract(sender) begin InvokeContract:")
+    indentationLevel += 1
+    appendLine(builder, s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR + 1;")
+    appendLine(builder, "with __timeDelta \\in 1..MAX_TIMESTEP do")
+    indentationLevel += 1
+    appendLine(builder, s"$CURRENT_TIME_VAR := $CURRENT_TIME_VAR + __timeDelta;")
+    indentationLevel -= 1
+    appendLine(builder, "end with;")
+    builder.append("MethodCall:\n")
     if (transitions.length == 1) {
       val t = transitions.head
       t.parameters.foreach(params => {
-        builder.append(INDENTATION_STR + writeTransitionArgumentSelection(params) + "\n")
-        builder.append(INDENTATION_STR)
+        appendLine(builder, writeTransitionArgumentSelection(params))
+        indentationLevel += 1
       })
-      builder.append(INDENTATION_STR)
-      builder.append(s"call ${t.name}(")
-      builder.append(("sender" +: t.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", "))
-      builder.append(");\n")
+
+      val paramsRepr = t.parameters.fold("")(p => p.map(_.name + "_ arg").mkString(" ,"))
+      appendLine(builder,s"call ${t.name}($paramsRepr);")
       if (t.parameters.isDefined) {
-        builder.append(INDENTATION_STR + "end with;")
+        indentationLevel -= 1
+        appendLine(builder, "end with")
       }
     } else {
-      builder.append(INDENTATION_STR + "either\n")
+      appendLine(builder, "either")
+      indentationLevel += 1
       transitions.zipWithIndex.foreach { case (transition, idx) =>
         transition.parameters.foreach { params =>
-          builder.append(INDENTATION_STR * 2 + writeTransitionArgumentSelection(params) + "\n")
-          builder.append(INDENTATION_STR)
-        }
-        builder.append(INDENTATION_STR * 2 + s"call ${transition.name}(")
-        // Again, add "_arg" suffix to avoid name collisions in TLA+
-        builder.append(("sender" +: transition.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", "))
-        builder.append(");\n")
-        if (transition.parameters.isDefined) {
-          builder.append(INDENTATION_STR * 2 + "end with;\n")
+          appendLine(builder, writeTransitionArgumentSelection(params))
+          indentationLevel += 1
         }
 
+        // Again, add "_arg" suffix to avoid name collisions in TLA+
+        val paramsRepr = ("sender" +: transition.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", ")
+        appendLine(builder, s"call ${transition.name}($paramsRepr);")
+        if (transition.parameters.isDefined) {
+          indentationLevel -= 1
+          appendLine(builder, "end with;")
+        }
+
+        indentationLevel -= 1
         if (idx < transitions.length - 1) {
-          builder.append(INDENTATION_STR + "or\n")
+          appendLine(builder, "or")
+          indentationLevel += 1
+        } else {
+          appendLine(builder, "end either;")
         }
       }
-      builder.append(INDENTATION_STR + "end either;\n")
     }
+
     builder.append(nextLabel() + "\n")
-    builder.append(INDENTATION_STR + s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR - 1;\n")
-    builder.append(INDENTATION_STR + "return;\n")
-    builder.append("end procedure;\n")
+    appendLine(builder, s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR - 1;")
+    appendLine(builder, "return;")
+    indentationLevel -= 1
+    appendLine(builder, "end procedure;")
     builder.toString()
   }
 
   private def writeSendFunction(): String = {
     val builder = new StringBuilder()
-    builder.append("procedure sendTokens(recipient, amount) begin SendTokens:\n")
-    builder.append(INDENTATION_STR + s"$CONTRACT_BALANCE_VAR := $CONTRACT_BALANCE_VAR - amount;\n")
+    appendLine(builder, "procedure sendTokens(recipient, amount) begin SendTokens:")
+    indentationLevel += 1
+    appendLine(builder, s"$CONTRACT_BALANCE_VAR := $CONTRACT_BALANCE_VAR - amount;")
     builder.append("SendInvocation:\n")
-    builder.append(INDENTATION_STR + "either\n")
-    builder.append(INDENTATION_STR * 2 + "call invokeContract(recipient);\n")
-    builder.append(INDENTATION_STR * 2 + "goto SendInvocation;\n")
-    builder.append(INDENTATION_STR + "or\n")
-    builder.append(INDENTATION_STR * 2 + "skip;\n")
-    builder.append(INDENTATION_STR + "end either;\n")
+    appendLine(builder, "either")
+    indentationLevel += 1
+    appendLine(builder, "call invokeContract(recipient);")
+    appendLine(builder, "goto SendInvocation;")
+    indentationLevel -= 1
+    appendLine(builder, "or")
+    indentationLevel += 1
+    appendLine(builder, "skip;")
+    indentationLevel -= 1
+    appendLine(builder, "end either;")
     builder.append(nextLabel() + "\n")
-    builder.append(INDENTATION_STR + "return;\n")
-    builder.append("end procedure;\n")
+    appendLine(builder, "return;")
+    indentationLevel -= 1
+    appendLine(builder, "end procedure;")
     builder.toString()
   }
 
@@ -312,30 +334,30 @@ object PlusCal {
       val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
 
       val builder = new StringBuilder()
-      builder.append(s"-----MODULE $name-----\n")
-      builder.append("EXTENDS Integers, Sequences, TLC\n")
+      appendLine(builder, s"-----MODULE $name-----")
+      appendLine(builder, "EXTENDS Integers, Sequences, TLC")
 
       val stateNames = stateMachine.states.map(_.toUpperCase)
       val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase) :+ "ZERO_IDENT"
-      builder.append(s"CONSTANTS ${BUILT_IN_CONSTANTS.mkString(", ")}\n")
-      builder.append(s"CONSTANTS ${stateNames.mkString(", ")}\n")
-      builder.append(s"CONSTANTS ${identityNames.mkString(", ")}\n")
-      builder.append(s"STATES == { ${stateMachine.states.map(_.toUpperCase).mkString(", ")} }\n")
-      builder.append(s"IDENTITIES == { ${identityNames.mkString(", ")} }\n\n")
+      appendLine(builder, s"CONSTANTS ${BUILT_IN_CONSTANTS.mkString(", ")}")
+      appendLine(builder, s"CONSTANTS ${stateNames.mkString(", ")}")
+      appendLine(builder, s"CONSTANTS ${identityNames.mkString(", ")}")
+      appendLine(builder, s"STATES == { ${stateMachine.states.map(_.toUpperCase).mkString(", ")} }")
+      appendLine(builder, s"IDENTITIES == { ${identityNames.mkString(", ")} }")
+      builder.append("\n")
 
-      builder.append(s"(* --fair algorithm $name\n")
-
-      builder.append(s"variables $CURRENT_STATE_VAR = ${initialState.toUpperCase},\n")
-      builder.append(INDENTATION_STR + s"$CURRENT_TIME_VAR = 0,\n")
-      builder.append(INDENTATION_STR + s"$CALL_DEPTH_VAR = 0,\n")
-      builder.append(INDENTATION_STR + s"$CONTRACT_BALANCE_VAR = 0")
+      appendLine(builder, s"(* --fair algorithm $name")
+      appendLine(builder, s"variables $CURRENT_STATE_VAR = ${initialState.toUpperCase};")
+      indentationLevel += 1
+      appendLine(builder, s"$CURRENT_TIME_VAR = 0;")
+      appendLine(builder, s"$CALL_DEPTH_VAR = 0;")
+      appendLine(builder, s"$CONTRACT_BALANCE_VAR = 0;")
       builder.append(writeTransitionApprovalFields(stateMachine))
 
-      if (stateMachine.fields.nonEmpty) {
-        builder.append(",\n" + INDENTATION_STR)
-        builder.append(stateMachine.fields.map(writeField).mkString(",\n" + INDENTATION_STR))
+      stateMachine.fields.foreach { field =>
+        appendLine(builder, s"${writeField(field)};")
       }
-      builder.append(";\n\n")
+      builder.append("\n")
 
       val initialTransition = stateMachine.transitions.filter(_.origin.isEmpty).head
       val standardTransitions = stateMachine.transitions.filter(_.origin.isDefined)
@@ -345,27 +367,32 @@ object PlusCal {
       builder.append(writeInvocationLoop(standardTransitions))
       builder.append("\n")
       builder.append(writeSendFunction())
+      builder.append("\n")
 
       // Invoke procedure corresponding to initial transition
-      builder.append("\nbegin Main:\n")
+      builder.append("begin Main:\n")
       // Add the usual "_arg" suffix to prevent name collisions in TLA+
-      builder.append(INDENTATION_STR + "with ")
       val initialParams = Variable("sender", Identity) +: initialTransition.parameters.getOrElse(Seq.empty[Variable])
-      builder.append(initialParams.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", "))
-      builder.append(" do\n")
-      builder.append(INDENTATION_STR * 2)
-      builder.append(s"call ${initialTransition.name}(${initialParams.map(_.name + "_arg").mkString(", ")});\n")
-      builder.append(INDENTATION_STR + "end with;\n")
+      val initialParamsChoice = initialParams.map(p => s"${p.name}_arg \\in ${writeDomain(p.ty)}").mkString(", ")
+      appendLine(builder, s"with $initialParamsChoice do")
+      indentationLevel += 1
+      appendLine(builder, s"call ${initialTransition.name}(${initialParams.map(_.name + "_arg").mkString(", ")});")
+      indentationLevel -= 1
+      appendLine(builder, "end with;")
+      builder.append("\n")
 
-      builder.append("\nLoop:\n")
-      builder.append(INDENTATION_STR + s"with sender_arg \\in ${writeDomain(Identity)} do\n")
-      builder.append(INDENTATION_STR * 2 + "call invokeContract(sender_arg);\n")
-      builder.append(INDENTATION_STR + "end with;\n")
+      builder.append("Loop:\n")
+      appendLine(builder, s"with sender_arg \\in ${writeDomain(Identity)} do")
+      indentationLevel += 1
+      appendLine(builder, "call invokeContract(sender_arg);")
+      indentationLevel -= 1
+      appendLine(builder, "end with;")
       builder.append(nextLabel() + "\n")
-      builder.append(INDENTATION_STR + "goto Loop;\n")
+      appendLine(builder, "goto Loop;")
 
-      builder.append("end algorithm; *)\n")
-      builder.append("========")
+      indentationLevel -= 1
+      appendLine(builder, "end algorithm; *)")
+      appendLine(builder, "========")
       builder.toString()
   }
 }

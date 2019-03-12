@@ -86,7 +86,14 @@ object SpecificationParser extends JavaTokenParsers {
 
   def assignment: Parser[Assignment] = assignable ~ "=" ~ (arithmeticExpression | logicalExpression) ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs) }
 
-  def send: Parser[Send] = "send" ~ arithmeticExpression ~ "to" ~ arithmeticExpression ^^ { case "send" ~ amountExpr ~ "to" ~ destExpr => Send(destExpr, amountExpr) }
+  def send: Parser[Send] = "send" ~ arithmeticExpression ~ "to" ~ arithmeticExpression ~ opt("consuming" ~ assignable) ^^
+    { case "send" ~ amountExpr ~ "to" ~ destExpr ~ source => source match {
+        case None => Send(destExpr, amountExpr, None)
+        case Some("consuming" ~ sourceRef) => Send(destExpr, amountExpr, Some(sourceRef))
+        // This should never happen, just here to make match exhaustive
+        case Some(_) => throw new IllegalStateException("Matched fallthrough pattern when parsing 'send'")
+      }
+    }
 
   def statement: Parser[Statement] = assignment | send
 

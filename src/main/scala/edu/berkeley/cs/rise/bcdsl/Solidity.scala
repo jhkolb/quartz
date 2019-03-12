@@ -9,6 +9,13 @@ object Solidity {
     "sender" -> "msg.sender",
   )
 
+  private var indentationLevel: Integer = 0
+
+  private def appendLine(builder: StringBuilder, line: String): Unit =
+    builder.append(s"${INDENTATION_STR * indentationLevel}$line\n")
+
+  private def writeLine(line: String): String = s"${INDENTATION_STR * indentationLevel}$line\n"
+
   private def writeType(ty: DataType): String =
     ty match {
       case Identity => "address"
@@ -21,7 +28,7 @@ object Solidity {
     }
 
   private def writeField(field: Variable): String =
-    INDENTATION_STR + s"${writeType(field.ty)} public ${field.name};\n"
+    s"${writeType(field.ty)} public ${field.name}"
 
   private def writeExpression(expression: Expression): String = {
     val builder = new StringBuilder()
@@ -90,110 +97,102 @@ object Solidity {
   private def writeParameters(parameters: Seq[Variable]): String =
     parameters.map(writeParameter).mkString(", ")
 
+  private def writeAssignable(assignable: Assignable): String = assignable match {
+    case VarRef(name) => name
+    case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
+  }
+
   private def writeStatement(statement: Statement): String = statement match {
-    case Assignment(left, right) =>
-      val leftStr = left match {
-        case VarRef(name) => name
-        case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
-      }
-      s"$leftStr = ${writeExpression(right)}"
-    case Send(destination, amount) =>
+    case Assignment(left, right) => writeLine(s"${writeAssignable(left)} = ${writeExpression(right)};")
+    case Send(destination, amount, source) =>
       val destStr = destination match {
         case ValueExpression(_) => writeExpression(destination)
-        case _ => s"(${writeExpression(destination)})"
+        case _ => s"(${writeExpression(destination)};)"
       }
-      // TODO we just convert to uint as needed for now, but this assumes amount >= 0
-      s"$destStr.transfer(uint(${writeExpression(amount)}))"
+      source match {
+        // TODO we just convert to uint as needed for now, but this assumes amount >= 0
+        case None => writeLine(s"$destStr.transfer(uint(${writeExpression(amount)}));")
+        case Some(s) =>
+          val builder = new StringBuilder()
+          appendLine(builder, s"int __temporary = ${writeExpression(amount)};")
+          appendLine(builder, s"${writeAssignable(s)} = ${writeAssignable(s)} - __temporary;")
+          appendLine(builder, s"$destStr.transfer(uint(__temporary));")
+          builder.toString()
+      }
   }
 
   private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
     val builder = new StringBuilder()
 
-    builder.append(INDENTATION_STR)
-    transition.origin match {
-      case None =>
-        builder.append("constructor(")
-      case Some(o) =>
-        builder.append(s"function ${transition.name}(")
+    val paramsRepr = transition.parameters.fold("")(writeParameters)
+    if (transition.origin.isDefined) {
+      appendLine(builder, s"function ${transition.name} ($paramsRepr) public {")
+    } else {
+      appendLine(builder, s"constructor($paramsRepr) public {")
     }
-    transition.parameters.foreach(params => builder.append(writeParameters(params)))
-    builder.append(") public {\n")
+    indentationLevel += 1
 
     transition.origin.foreach { o =>
-      builder.append(INDENTATION_STR * 2)
-      builder.append(s"require($CURRENT_STATE_VAR == State.$o);\n")
+      appendLine(builder, s"require($CURRENT_STATE_VAR == State.$o);")
     }
 
     // These transitions are all distinct from the current transition, but we need to interpose them
     val outgoingAutoTransitions = transition.origin.flatMap(autoTransitions.get)
     outgoingAutoTransitions.foreach(_.filter(_ != transition).zipWithIndex.foreach { case (t, idx) =>
-      val g = t.guard.get
-      builder.append(INDENTATION_STR * 2)
-      if (idx > 0) {
-        builder.append("else ")
+      val g = t.guard.get // Auto transitions must have a guard
+      if (idx == 0) {
+        appendLine(builder, s"if (${writeExpression(g)}) {")
+      } else {
+        appendLine(builder, s"else if (${writeExpression(g)}) {")
       }
-      builder.append(s"if (${writeExpression(g)}) {\n")
+      indentationLevel += 1
 
       if (t.destination != t.origin.get) {
-        builder.append(INDENTATION_STR * 3)
-        builder.append(s"$CURRENT_STATE_VAR = State.${t.destination};\n")
+        appendLine(builder, s"$CURRENT_STATE_VAR = State.${t.destination};")
       }
-      t.body.foreach(_.foreach { statement =>
-        builder.append(INDENTATION_STR * 3)
-        builder.append(s"${writeStatement(statement)};\n")
-      })
+      t.body.foreach(_.foreach(s => builder.append(writeStatement(s))))
 
-      builder.append(INDENTATION_STR * 3)
-      builder.append("return;\n")
-      builder.append(INDENTATION_STR * 2)
-      builder.append("}\n")
+      appendLine(builder, "return;")
+      indentationLevel -= 1
+      appendLine(builder, "}")
     })
 
     transition.guard.foreach { g =>
-      builder.append(INDENTATION_STR * 2)
-      builder.append(s"require(${writeExpression(g)});\n")
+      appendLine(builder,s"require(${writeExpression(g)});")
     }
 
     transition.authorized.foreach { authDecl =>
       val identities = authDecl.extractIdentities
       if (identities.size == 1) {
-        builder.append(INDENTATION_STR * 2)
-        builder.append(s"require(msg.sender == ${identities.head});\n")
+        appendLine(builder, s"require(msg.sender == ${identities.head});")
       } else {
-        builder.append(INDENTATION_STR * 2)
-        builder.append(s"if (msg.sender == ${identities.head}) {\n")
-        builder.append(INDENTATION_STR * 3)
-        builder.append(s"${writeApprovalVar(transition, identities.head)} = true;\n")
-        builder.append(INDENTATION_STR * 2)
-        builder.append("}\n")
+        appendLine(builder, s"if (msg.sender == ${identities.head}) {")
+        indentationLevel += 1
+        appendLine(builder, s"${writeApprovalVar(transition, identities.head)} = true;")
+        indentationLevel -= 1
+        appendLine(builder, "}")
 
         identities.tail.foreach { id =>
-          builder.append(INDENTATION_STR * 2)
-          builder.append(s"else if (msg.sender == $id) {\n")
-          builder.append(INDENTATION_STR * 3)
-          builder.append(s"${writeApprovalVar(transition, id)} = true;\n")
-          builder.append(INDENTATION_STR * 2)
-          builder.append("}\n")
+          appendLine(builder,"else if (msg.sender == $id) {")
+          indentationLevel += 1
+          appendLine(builder, s"${writeApprovalVar(transition, id)} = true;")
+          indentationLevel -= 1
+          appendLine(builder, "}")
         }
 
-        builder.append(INDENTATION_STR * 2)
-        builder.append(s"require(${writeAuthClause(transition, authDecl)});\n")
+        appendLine(builder, s"require(${writeAuthClause(transition, authDecl)});")
       }
     }
 
     if (transition.origin.getOrElse("") != transition.destination) {
       // We don't need this for a self-loop
-      builder.append(INDENTATION_STR * 2)
-      builder.append(s"$CURRENT_STATE_VAR = State.${transition.destination};\n")
+      appendLine(builder,s"$CURRENT_STATE_VAR = State.${transition.destination};")
     }
 
-    transition.body.foreach(_.foreach { statement =>
-      builder.append(INDENTATION_STR * 2)
-      builder.append(s"${writeStatement(statement)};\n")
-    })
-    builder.append(INDENTATION_STR)
-    builder.append("}\n\n")
-
+    transition.body.foreach(_.foreach(s => builder.append(writeStatement(s))))
+    indentationLevel -= 1
+    appendLine(builder, "}")
+    builder.append("\n")
     builder.toString()
   }
 
@@ -204,8 +203,7 @@ object Solidity {
       val identities = authDecl.extractIdentities
       if (identities.size > 1) {
         identities.foreach { id =>
-          builder.append(INDENTATION_STR)
-          builder.append(s"bool private ${writeApprovalVar(t, id)};\n")
+          appendLine(builder, s"bool private ${writeApprovalVar(t, id)};")
         }
       }
     })
@@ -243,30 +241,32 @@ object Solidity {
   def writeSpecification(specification: Specification): String = specification match {
     case Specification(name, stateMachine, _) =>
       val builder = new StringBuilder()
-      builder.append("pragma solidity >0.4.21;\n\n")
-      builder.append(s"contract $name {\n")
+      appendLine(builder, "pragma solidity >0.4.21;\n")
+      appendLine(builder, s"contract $name {")
 
       val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
         val originState = transition.origin.get
         autoTrans + (originState -> (autoTrans.getOrElse(originState, Seq.empty[Transition]) :+ transition))
       }
 
-      builder.append(INDENTATION_STR)
-      builder.append("enum State {\n")
-      builder.append(INDENTATION_STR * 2)
-      builder.append(stateMachine.states.mkString(",\n" + (INDENTATION_STR * 2)))
-      builder.append("\n")
-      builder.append(INDENTATION_STR + "}\n")
+      indentationLevel += 1
+      appendLine(builder, "enum State {")
+      indentationLevel += 1
+      stateMachine.states.zipWithIndex.foreach { case (stateName, i) =>
+          appendLine(builder, if (i < stateMachine.states.size - 1) stateName + "," else stateName)
+      }
+      indentationLevel -= 1
+      appendLine(builder, "}")
 
-      stateMachine.fields foreach { f => builder.append(writeField(f)) }
-      builder.append(INDENTATION_STR)
-      builder.append(s"State public $CURRENT_STATE_VAR;\n")
+      stateMachine.fields.foreach(f => appendLine(builder, writeField(f) + ";"))
+      appendLine(builder, s"State public $CURRENT_STATE_VAR;")
       builder.append(writeAuthorizationFields(stateMachine))
       builder.append("\n")
 
       stateMachine.transitions foreach { t => builder.append(writeTransition(t, autoTransitions)) }
 
-      builder.append("}")
+      indentationLevel -= 1
+      appendLine(builder, "}")
       builder.toString
   }
 }

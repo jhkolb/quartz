@@ -70,18 +70,27 @@ case class Transition(name: String, origin: Option[String], destination: String,
             case (Right(_), Right(_)) => ()
           }
 
-        case Send(sendDest, amount) =>
-          val destRes = sendDest.getType(localContext)
-          val amountRes = amount.getType(localContext)
-          (destRes, amountRes) match {
-            case (Left(err), _) => return Some(makeTypeErrMsg(i, err))
-            case (_, Left(err)) => return Some(makeTypeErrMsg(i, err))
-            case (Right(Identity), Right(Int)) => () // This is the case we want
-            case (Right(destTy), Right(Int)) if destTy != Identity => return Some(makeTypeErrMsg(i,
-              s"Expected send destination of type Identity, but found $destTy"))
-            case (Right(Identity), Right(amountTy)) => return Some(makeTypeErrMsg(i,
-              s"Expected amount destination of type Int, but found $amountTy"))
+        case Send(sendDest, amount, source) =>
+          sendDest.getType(localContext) match {
+            case Left(err) => return Some(makeTypeErrMsg(i, err))
+            case Right(destTy) if destTy != Identity =>
+              return Some(makeTypeErrMsg(i, s"Expected send destination of type Identity but found $destTy"))
+            case Right(_) => ()
           }
+
+          amount.getType(localContext) match {
+            case Left(err) => return Some(makeTypeErrMsg(i, err))
+            case Right(amountTy) if amountTy != Int =>
+              return Some(makeTypeErrMsg(i, s"Expected send amount of type Int, but found $amountTy"))
+            case Right(_) => ()
+          }
+
+          source.foreach(_.getType(localContext) match {
+            case Left(err) => return Some(makeTypeErrMsg(i, err))
+            case Right(sourceTy) if sourceTy != Int =>
+              return Some(makeTypeErrMsg(i, s"Expected send to consume var of type Int, but found type $sourceTy"))
+            case Right(_) => ()
+          })
       }
     }
     None

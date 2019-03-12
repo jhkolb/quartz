@@ -162,4 +162,4 @@ case class AuthCombination(left: AuthDecl, operator: LogicalOperator, right: Aut
 
 sealed trait Statement
 case class Assignment(left: Assignable, right: Expression) extends Statement
-case class Send(destination: Expression, amount: Expression) extends Statement
+case class Send(destination: Expression, amount: Expression, source: Option[Assignable]) extends Statement

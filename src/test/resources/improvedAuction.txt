@@ -1,0 +1,35 @@
+contract Auction {
+    data {
+      Seller: Identity
+      HighestBidder: Identity
+      HighestBid: Int
+      AuctionStart: Timestamp
+      Duration: Timespan
+      Balances: Mapping[Identity, Int]
+    }
+
+    initialize: ->(duration: Timespan) open {
+        Seller = sender
+        HighestBid = 0
+        AuctionStart = now
+        Duration = duration
+    }
+
+    submitBid: open ->(tokens: Int) open
+    requires [ tokens > HighestBid ] {
+        Balances[HighestBidder] = Balances[HighestBidder] + HighestBid
+        HighestBidder = sender
+        HighestBid = tokens
+    }
+
+    withdraw: open -> open requires [ Balances[sender] > 0 ] {
+        send Balances[sender] to sender consuming Balances[sender]
+    }
+
+    auto closeAuction: open -> closed requires [ now - AuctionStart >= Duration ]
+}
+
+properties {
+    [](balance >= 0)
+    [](<>(closed))
+}
