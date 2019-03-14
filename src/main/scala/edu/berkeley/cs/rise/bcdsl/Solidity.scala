@@ -158,7 +158,7 @@ object Solidity {
     })
 
     transition.guard.foreach { g =>
-      appendLine(builder,s"require(${writeExpression(g)});")
+      appendLine(builder, s"require(${writeExpression(g)});")
     }
 
     transition.authorized.foreach { authDecl =>
@@ -168,14 +168,14 @@ object Solidity {
       } else {
         appendLine(builder, s"if (msg.sender == ${identities.head}) {")
         indentationLevel += 1
-        appendLine(builder, s"${writeApprovalVar(transition, identities.head)} = true;")
+        appendLine(builder, s"${writeApprovalVarRef(transition, identities.head)} = true;")
         indentationLevel -= 1
         appendLine(builder, "}")
 
         identities.tail.foreach { id =>
-          appendLine(builder,"else if (msg.sender == $id) {")
+          appendLine(builder, s"else if (msg.sender == $id) {")
           indentationLevel += 1
-          appendLine(builder, s"${writeApprovalVar(transition, id)} = true;")
+          appendLine(builder, s"${writeApprovalVarRef(transition, id)} = true;")
           indentationLevel -= 1
           appendLine(builder, "}")
         }
@@ -186,7 +186,7 @@ object Solidity {
 
     if (transition.origin.getOrElse("") != transition.destination) {
       // We don't need this for a self-loop
-      appendLine(builder,s"$CURRENT_STATE_VAR = State.${transition.destination};")
+      appendLine(builder, s"$CURRENT_STATE_VAR = State.${transition.destination};")
     }
 
     transition.body.foreach(_.foreach(s => builder.append(writeStatement(s))))
@@ -203,25 +203,38 @@ object Solidity {
       val identities = authDecl.extractIdentities
       if (identities.size > 1) {
         identities.foreach { id =>
-          appendLine(builder, s"bool private ${writeApprovalVar(t, id)};")
+          appendLine(builder, s"${writeApprovalVarType(t)} private ${writeApprovalVarName(t, id)};")
         }
       }
     })
     builder.toString()
   }
 
-  private def writeApprovalVar(transition: Transition, principal: String): String =
-  // Validation ensures that transition must have an origin
-  // Only non-initial transitions can have authorization restrictions
+  private def writeApprovalVarName(transition: Transition, principal: String): String =
+    // Validation ensures that transition must have an origin
+    // Only non-initial transitions can have authorization restrictions
     s"__${transition.name}_${principal}Approved"
+
+  private def writeApprovalVarRef(transition: Transition, principal: String): String = transition.parameters match {
+    case None => writeApprovalVarName(transition, principal)
+    case Some(params) => writeApprovalVarName(transition, principal) + params.map(p => s"[${p.name}]").mkString
+  }
+
+  private def writeApprovalVarType(transition: Transition): String =
+    // Solidity doesn't allow non-elementary mapping key types
+    // So we need to track combinations of parameters using a nested mapping, one layer per param
+    // This is very reminiscent of Currying
+    transition.parameters.getOrElse(Seq.empty[Variable]).foldRight("bool") { case (variable, current) =>
+        s"mapping(${writeType(variable.ty)} => $current)"
+    }
 
   private def writeAuthClause(transition: Transition, authDecl: AuthDecl): String =
     authDecl match {
-      case AuthValue(name) => writeApprovalVar(transition, name)
+      case AuthValue(name) => writeApprovalVarRef(transition, name)
       case AuthCombination(left, operator, right) =>
         val builder = new StringBuilder()
         left match {
-          case AuthValue(name) => builder.append(writeApprovalVar(transition, name))
+          case AuthValue(name) => builder.append(writeApprovalVarRef(transition, name))
           case authCombo => builder.append(s"(${writeAuthClause(transition, authCombo)})")
         }
         operator match {
@@ -231,7 +244,7 @@ object Solidity {
           case _ => throw new UnsupportedOperationException(s"Operator $operator cannot be used in authorization logic")
         }
         right match {
-          case AuthValue(name) => builder.append(writeApprovalVar(transition, name))
+          case AuthValue(name) => builder.append(writeApprovalVarRef(transition, name))
           case authCombo => builder.append(s"(${writeAuthClause(transition, authCombo)})")
         }
 
@@ -253,7 +266,7 @@ object Solidity {
       appendLine(builder, "enum State {")
       indentationLevel += 1
       stateMachine.states.zipWithIndex.foreach { case (stateName, i) =>
-          appendLine(builder, if (i < stateMachine.states.size - 1) stateName + "," else stateName)
+        appendLine(builder, if (i < stateMachine.states.size - 1) stateName + "," else stateName)
       }
       indentationLevel -= 1
       appendLine(builder, "}")

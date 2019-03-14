@@ -45,14 +45,28 @@ object PlusCal {
 
   private def writeField(field: Variable): String = s"${field.name} = ${writeZeroElement(field.ty)}"
 
-  private def writeTransitionApprovalVar(transition: Transition, principal: String): String =
+  private def writeApprovalVarName(transition: Transition, principal: String): String =
   // Only non-initial transitions can have authorization clause
-    s"${transition.name}_${principal}_approved"
+    s"${transition.name}_${principal.toLowerCase.capitalize}_approved"
+
+  private def writeApprovalVarRef(transition: Transition, principal: String): String = transition.parameters match {
+    case None => writeApprovalVarName(transition, principal)
+    case Some(params) =>
+      val paramsStructRepr = "[" + params.map(p => s"${p.name} |-> ${p.name}").mkString(", ") + "]"
+      s"${writeApprovalVarName(transition, principal)}[ $paramsStructRepr ]"
+  }
+
+  private def writeApprovalVarInit(transition: Transition): String = transition.parameters match {
+    case None => "FALSE"
+    case Some(params) =>
+      val paramsStructRepr = "[" + params.map(p => s"${p.name}: ${writeDomain(p.ty)}").mkString(", ") + "]"
+      s"[ x \\in $paramsStructRepr |-> FALSE]"
+  }
 
   private def writeTransitionApprovalFields(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
     stateMachine.transitions.foreach(t => t.authorized.map(_.extractIdentities).filter(_.size > 1).foreach(_.foreach { id =>
-      appendLine(builder, s"variable ${writeTransitionApprovalVar(t, id)} = FALSE")
+      appendLine(builder, s"${writeApprovalVarName(t, id)} = ${writeApprovalVarInit(t)};")
     }))
 
     builder.toString()
@@ -61,10 +75,10 @@ object PlusCal {
   private def writeAuthClause(transition: Transition, decl: AuthDecl): String = {
     val builder = new StringBuilder()
     decl match {
-      case AuthValue(name) => builder.append(writeTransitionApprovalVar(transition, name))
+      case AuthValue(name) => builder.append(writeApprovalVarRef(transition, name))
       case AuthCombination(left, op, right) =>
         left match {
-          case AuthValue(name) => builder.append(writeTransitionApprovalVar(transition, name))
+          case AuthValue(name) => builder.append(writeApprovalVarRef(transition, name))
           case authCombination => builder.append(s"(${writeAuthClause(transition, authCombination)})")
         }
 
@@ -76,7 +90,7 @@ object PlusCal {
         }
 
         right match {
-          case AuthValue(name) => builder.append(writeTransitionApprovalVar(transition, name))
+          case AuthValue(name) => builder.append(writeApprovalVarRef(transition, name))
           case authCombination => builder.append(s"(${writeAuthClause(transition, authCombination)})")
         }
     }
@@ -206,13 +220,13 @@ object PlusCal {
       } else {
         appendLine(builder, s"if sender = ${identities.head} then")
         indentationLevel += 1
-        appendLine(builder, s"${writeTransitionApprovalVar(transition, identities.head)} := TRUE;")
+        appendLine(builder, s"${writeApprovalVarRef(transition, identities.head)} := TRUE;")
         indentationLevel -= 1
 
         identities.tail.foreach { id =>
           appendLine(builder, s"elsif sender = $id then")
           indentationLevel += 1
-          appendLine(builder, s"${writeTransitionApprovalVar(transition, id)} := TRUE;")
+          appendLine(builder, s"${writeApprovalVarRef(transition, id)} := TRUE;")
           indentationLevel -= 1
         }
         appendLine(builder, "end if;")
@@ -265,11 +279,11 @@ object PlusCal {
         indentationLevel += 1
       })
 
-      val paramsRepr = t.parameters.fold("")(p => p.map(_.name + "_ arg").mkString(" ,"))
+      val paramsRepr = ("sender" +: t.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", ")
       appendLine(builder,s"call ${t.name}($paramsRepr);")
       if (t.parameters.isDefined) {
         indentationLevel -= 1
-        appendLine(builder, "end with")
+        appendLine(builder, "end with;")
       }
     } else {
       appendLine(builder, "either")

@@ -1,0 +1,14 @@
+contract SimpleMultiSig {
+    data {
+      Owner: Identity
+      Cosigner: Identity
+    }
+
+    initialize: ->(cosigner: Identity) open {
+        Cosigner = cosigner
+    }
+
+    sendFunds: open ->(recipient: Identity, amount: Int) open authorized [ Owner && Cosigner ] {
+        send amount to recipient
+    }
+}
