@@ -8,13 +8,14 @@ case object Timestamp extends DataType
 case object Bool extends DataType
 case object Timespan extends DataType
 case class Mapping(keyType: DataType, valueType: DataType) extends DataType
+case class Sequence(elementType: DataType) extends DataType
 
 trait Typed {
   def getType(context: Map[String, DataType]): Either[String, DataType]
 }
 
-sealed trait SimpleValue extends Typed
-sealed trait Assignable extends SimpleValue
+sealed trait Expression extends Typed
+sealed trait Assignable extends Expression
 
 case class VarRef(name: String) extends Assignable {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = context.get(name) match {
@@ -23,14 +24,15 @@ case class VarRef(name: String) extends Assignable {
   }
 }
 
-case class IntConst(value: Int) extends SimpleValue {
+case class IntConst(value: Int) extends Expression {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Int)
 }
 
-case class StringLiteral(value: String) extends SimpleValue {
+case class StringLiteral(value: String) extends Expression {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(String)
 }
-case class BoolConst(value: Boolean) extends SimpleValue {
+
+case class BoolConst(value: Boolean) extends Expression {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Bool)
 }
 
@@ -49,15 +51,32 @@ case class MappingRef(mapName: String, key: Expression) extends Assignable {
   }
 }
 
+case class SequenceMembership(sequence: Expression, element: Expression, negation: Boolean) extends Expression {
+  override def getType(context: Map[String, DataType]): Either[String, DataType] = sequence.getType(context) match {
+    case Left(err) => Left(s"Type error in sequence expression: $err")
+    case Right(Sequence(elementType)) => element.getType(context) match {
+      case Left(err) => Left(s"Type error in sequence element expression: $err")
+      case Right(ty) if elementType == ty =>
+        Right(Bool)
+      case Right(ty) => Left(s"Expected sequence element of type $elementType but found expression of type $ty")
+    }
+    case Right(ty) => Left(s"Cannot compute membership of non-sequence type $ty")
+  }
+}
+
 sealed trait LogicalOperator
-case object Equal extends LogicalOperator
-case object NotEqual extends LogicalOperator
-case object LessThan extends LogicalOperator
-case object LessThanOrEqual extends LogicalOperator
-case object GreaterThan extends LogicalOperator
-case object GreaterThanOrEqual extends LogicalOperator
-case object And extends LogicalOperator
-case object Or extends LogicalOperator
+
+sealed trait Comparator extends LogicalOperator
+case object Equal extends Comparator
+case object NotEqual extends Comparator
+case object LessThan extends Comparator
+case object LessThanOrEqual extends Comparator
+case object GreaterThan extends Comparator
+case object GreaterThanOrEqual extends Comparator
+
+sealed trait BooleanOperator extends LogicalOperator
+case object And extends BooleanOperator
+case object Or extends BooleanOperator
 
 sealed trait ArithmeticOperator
 case object Plus extends ArithmeticOperator
@@ -69,7 +88,7 @@ sealed trait LTLOperator
 case object Always extends LTLOperator
 case object Eventually extends LTLOperator
 
-sealed trait Timespan extends SimpleValue {
+sealed trait Timespan extends Expression {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Timespan)
 }
 case object Second extends Timespan
@@ -78,12 +97,7 @@ case object Hour extends Timespan
 case object Day extends Timespan
 case object Week extends Timespan
 
-sealed trait Expression extends Typed
-case class ValueExpression(value: SimpleValue) extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = value.getType(context)
-}
-
-case class LogicalExpression(left: Expression, operator: LogicalOperator, right: Expression) extends Expression {
+case class LogicalOperation(left: Expression, operator: LogicalOperator, right: Expression) extends Expression {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = for (
     leftTy <- left.getType(context);
     rightTy <- right.getType(context);
@@ -104,7 +118,7 @@ case class LogicalExpression(left: Expression, operator: LogicalOperator, right:
   ) yield resultTy
 }
 
-case class ArithmeticExpression(left: Expression, operator: ArithmeticOperator, right: Expression) extends Expression {
+case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, right: Expression) extends Expression {
   override def getType(context: Map[String, DataType]): Either[String, DataType] = for (
     leftTy <- left.getType(context);
     rightTy <- right.getType(context);
@@ -148,18 +162,37 @@ case class ArithmeticExpression(left: Expression, operator: ArithmeticOperator, 
 
 case class LTLProperty(operator: LTLOperator, body: Either[LTLProperty, Expression])
 
-sealed trait AuthDecl {
-  def extractIdentities: Set[String]
+sealed trait AuthExpression {
+  private [bcdsl] def flatten: Set[AuthTerm]
 }
 
-case class AuthValue(name: String) extends AuthDecl {
-  override def extractIdentities: Set[String] = Set(name)
+sealed trait AuthTerm extends AuthExpression {
+  def getReferencedName: String
 }
 
-case class AuthCombination(left: AuthDecl, operator: LogicalOperator, right: AuthDecl) extends AuthDecl {
-  override def extractIdentities: Set[String] = left.extractIdentities.union(right.extractIdentities)
+case class IdentityLiteral(identity: String) extends AuthTerm {
+  override def flatten: Set[AuthTerm] = Set(this)
+
+  override def getReferencedName: String = identity
+}
+
+case class AuthAny(collectionName: String) extends AuthTerm {
+  override def flatten: Set[AuthTerm] = Set(this)
+
+  override def getReferencedName: String = collectionName
+}
+
+case class AuthAll(collectionName: String) extends AuthTerm {
+  override def flatten: Set[AuthTerm] = Set(this)
+
+  override def getReferencedName: String = collectionName
+}
+
+case class AuthCombination(left: AuthExpression, operator: BooleanOperator, right: AuthExpression) extends AuthExpression {
+  override def flatten: Set[AuthTerm] = left.flatten.union(right.flatten)
 }
 
 sealed trait Statement
 case class Assignment(left: Assignable, right: Expression) extends Statement
 case class Send(destination: Expression, amount: Expression, source: Option[Assignable]) extends Statement
+case class SequenceAppend(set: Expression, element: Expression) extends Statement

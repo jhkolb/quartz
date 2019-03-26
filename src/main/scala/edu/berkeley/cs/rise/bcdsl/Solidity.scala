@@ -33,46 +33,47 @@ object Solidity {
   private def writeExpression(expression: Expression): String = {
     val builder = new StringBuilder()
     expression match {
-      case ValueExpression(value) => value match {
-        case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
-        case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
-        case IntConst(v) => builder.append(v)
-        case StringLiteral(s) => builder.append("\"" + s + "\"")
-        case BoolConst(b) => builder.append(b)
-        case Second => builder.append("seconds")
-        case Minute => builder.append("minutes")
-        case Hour => builder.append("hours")
-        case Day => builder.append("days")
-        case Week => builder.append("weeks")
-      }
+      case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
+      case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
+      case IntConst(v) => builder.append(v)
+      case StringLiteral(s) => builder.append("\"" + s + "\"")
+      case BoolConst(b) => builder.append(b)
+      case Second => builder.append("seconds")
+      case Minute => builder.append("minutes")
+      case Hour => builder.append("hours")
+      case Day => builder.append("days")
+      case Week => builder.append("weeks")
 
-      case ArithmeticExpression(left, operator, right) =>
+      case ArithmeticOperation(left, operator, right) =>
         left match {
-          case ValueExpression(_) => builder.append(writeExpression(left))
-          case _ => builder.append(s"(${writeExpression(left)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
+          case _ => builder.append(writeExpression(left))
         }
 
         operator match {
           case Plus => builder.append(" + ")
           case Minus => builder.append(" - ")
           case Multiply => right match {
-            case ValueExpression(Second) | ValueExpression(Minute) |
-                 ValueExpression(Hour) | ValueExpression(Day) | ValueExpression(Week) => builder.append(" ")
+            case Second | Minute | Hour | Day | Week => builder.append(" ")
             case _ => builder.append(" * ")
           }
           case Divide => builder.append(" / ")
         }
 
         right match {
-          case ValueExpression(_) => builder.append(writeExpression(right))
-          case _ => builder.append(s"(${writeExpression(right)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
+          case _ => builder.append(writeExpression(right))
         }
 
-      case LogicalExpression(left, operator, right) =>
+      case LogicalOperation(left, operator, right) =>
         left match {
-          case ValueExpression(_) => builder.append(writeExpression(left))
-          case _ => builder.append(s"(${writeExpression(left)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
+          case _ => builder.append(writeExpression(left))
         }
+
         operator match {
           case LessThan => builder.append(" < ")
           case LessThanOrEqual => builder.append(" <= ")
@@ -83,9 +84,11 @@ object Solidity {
           case And => builder.append(" && ")
           case Or => builder.append(" || ")
         }
+
         right match {
-          case ValueExpression(_) => builder.append(writeExpression(right))
-          case _ => builder.append(s"(${writeExpression(right)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
+          case _ => builder.append(writeExpression(right))
         }
     }
 
@@ -106,7 +109,8 @@ object Solidity {
     case Assignment(left, right) => writeLine(s"${writeAssignable(left)} = ${writeExpression(right)};")
     case Send(destination, amount, source) =>
       val destStr = destination match {
-        case ValueExpression(_) => writeExpression(destination)
+        case ArithmeticOperation(_, _, _) => s"(${writeExpression(destination)})"
+        case LogicalOperation(_, _, _) => s"(${writeExpression(destination)})"
         case _ => s"(${writeExpression(destination)};)"
       }
       source match {
@@ -161,26 +165,46 @@ object Solidity {
       appendLine(builder, s"require(${writeExpression(g)});")
     }
 
-    transition.authorized.foreach { authDecl =>
-      val identities = authDecl.extractIdentities
-      if (identities.size == 1) {
-        appendLine(builder, s"require(msg.sender == ${identities.head});")
-      } else {
-        appendLine(builder, s"if (msg.sender == ${identities.head}) {")
-        indentationLevel += 1
-        appendLine(builder, s"${writeApprovalVarRef(transition, identities.head)} = true;")
-        indentationLevel -= 1
-        appendLine(builder, "}")
-
-        identities.tail.foreach { id =>
-          appendLine(builder, s"else if (msg.sender == $id) {")
-          indentationLevel += 1
-          appendLine(builder, s"${writeApprovalVarRef(transition, id)} = true;")
-          indentationLevel -= 1
-          appendLine(builder, "}")
+    transition.authorized.foreach { authTerm =>
+      val subTerms = authTerm.flatten
+      if (subTerms.size == 1) {
+        subTerms.head match {
+          case IdentityLiteral(identity) =>
+            appendLine(builder, s"require(${RESERVED_NAME_TRANSLATIONS("sender")} == $identity);")
+          case AuthAny(collectionName) =>
+            appendLine(builder, s"requires(sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")});")
+          case AuthAll(collectionName) =>
+            appendLine(builder, s"${writeApprovalVarRef(transition, subTerms.head)} = true;")
+            val varName = writeApprovalVarName(transition, subTerms.head).dropRight(s"[${RESERVED_NAME_TRANSLATIONS("sender")}]".length())
+            appendLine(builder, s"require(allApproved($varName, $collectionName);")
         }
+      } else {
+        subTerms.zipWithIndex.foreach { case (subTerm, i) =>
+          val conditional = if (i == 0) "if" else "else if"
+          subTerm match {
+            case IdentityLiteral(identity) =>
+              appendLine(builder, s"$conditional (${RESERVED_NAME_TRANSLATIONS("sender")} == $identity) {")
+              indentationLevel += 1
+              appendLine(builder, s"{${writeApprovalVarRef(transition, subTerm)} = true;")
+              indentationLevel -= 1
+              appendLine(builder, "}")
 
-        appendLine(builder, s"require(${writeAuthClause(transition, authDecl)});")
+            case AuthAny(collectionName) =>
+              appendLine(builder, s"$conditional (sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")}) {")
+              indentationLevel += 1
+              appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} = true;")
+              indentationLevel -= 1
+              appendLine(builder, "}")
+
+            case AuthAll(collectionName) =>
+              appendLine(builder, s"$conditional sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")}) {")
+              indentationLevel += 1
+              appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} = true;")
+              indentationLevel -= 1
+              appendLine(builder, "}")
+          }
+        }
+        appendLine(builder, s"require(${writeAuthClause(transition, authTerm)});")
       }
     }
 
@@ -199,57 +223,90 @@ object Solidity {
   private def writeAuthorizationFields(machine: StateMachine): String = {
     val builder = new StringBuilder()
 
-    machine.transitions.foreach(t => t.authorized.foreach { authDecl =>
-      val identities = authDecl.extractIdentities
-      if (identities.size > 1) {
-        identities.foreach { id =>
-          appendLine(builder, s"${writeApprovalVarType(t)} private ${writeApprovalVarName(t, id)};")
+    machine.transitions.foreach(trans => trans.authorized.foreach { authClause =>
+      val terms = authClause.flatten
+      if (terms.size == 1) {
+        terms.head match {
+          // We don't need an explicit variable to track this
+          case IdentityLiteral(_) | AuthAny(_) => ()
+          case AuthAll(_) =>
+            appendLine(builder, s"${writeApprovalVarType(trans, terms.head)} private ${writeApprovalVarName(trans, terms.head)};")
+        }
+      } else {
+        terms.foreach { term =>
+          appendLine(builder, s"${writeApprovalVarType(trans, term)} private ${writeApprovalVarName(trans, term)};")
         }
       }
     })
     builder.toString()
   }
 
-  private def writeApprovalVarName(transition: Transition, principal: String): String =
-    // Validation ensures that transition must have an origin
-    // Only non-initial transitions can have authorization restrictions
-    s"__${transition.name}_${principal}Approved"
+  private def writeApprovalVarName(transition: Transition, term: AuthTerm): String =
+  // Validation ensures that transition must have an origin
+  // Only non-initial transitions can have authorization restrictions
+    s"__${transition.name}_${term.getReferencedName}Approved"
 
-  private def writeApprovalVarRef(transition: Transition, principal: String): String = transition.parameters match {
-    case None => writeApprovalVarName(transition, principal)
-    case Some(params) => writeApprovalVarName(transition, principal) + params.map(p => s"[${p.name}]").mkString
-  }
-
-  private def writeApprovalVarType(transition: Transition): String =
+  private def writeApprovalVarType(transition: Transition, term: AuthTerm): String = {
     // Solidity doesn't allow non-elementary mapping key types
     // So we need to track combinations of parameters using a nested mapping, one layer per param
-    // This is very reminiscent of Currying
-    transition.parameters.getOrElse(Seq.empty[Variable]).foldRight("bool") { case (variable, current) =>
-        s"mapping(${writeType(variable.ty)} => $current)"
+    val startingPoint = term match {
+      case IdentityLiteral(_) | AuthAny(_) => "bool"
+      case AuthAny(_) => "mapping(address => bool)"
+    }
+    transition.parameters.getOrElse(Seq.empty[Variable]).foldRight(startingPoint) { case (param, current) =>
+      s"mapping(${writeType(param.ty)} => $current)"
+    }
+  }
+
+  private def writeApprovalVarRef(transition: Transition, term: AuthTerm): String = term match {
+    case IdentityLiteral(_) | AuthAny(_) => transition.parameters match {
+      case None => writeApprovalVarName(transition, term)
+      case Some(params) => writeApprovalVarName(transition, term) + params.map(p => s"[${p.name}]").mkString
     }
 
-  private def writeAuthClause(transition: Transition, authDecl: AuthDecl): String =
-    authDecl match {
-      case AuthValue(name) => writeApprovalVarRef(transition, name)
+    case AuthAll(_) =>
+      val senderName = RESERVED_NAME_TRANSLATIONS("sender")
+      val effectiveParams = transition.parameters.getOrElse(Seq.empty[Variable]) :+ Variable(senderName, Identity)
+      writeApprovalVarName(transition, term) + effectiveParams.map(p => s"[${p.name}]").mkString
+  }
+
+  private def writeAuthClause(transition: Transition, term: AuthExpression, depth: Int = 0): String = {
+    val builder = new StringBuilder()
+    term match {
+      case t: AuthTerm => t match {
+        case IdentityLiteral(_) | AuthAny(_) => builder.append(writeApprovalVarRef(transition, t))
+
+        case AuthAll(collectionName) =>
+          // Strip out last mapping reference so we can look at all identities
+          val senderName = RESERVED_NAME_TRANSLATIONS("sender")
+          val varName = writeApprovalVarRef(transition, t).dropRight(s"[$senderName]".length())
+          builder.append(s"allApproved($varName, $collectionName)")
+      }
+
       case AuthCombination(left, operator, right) =>
-        val builder = new StringBuilder()
-        left match {
-          case AuthValue(name) => builder.append(writeApprovalVarRef(transition, name))
-          case authCombo => builder.append(s"(${writeAuthClause(transition, authCombo)})")
+        if (depth > 0) {
+          builder.append("(")
         }
+        builder.append(writeAuthClause(transition, left, depth + 1))
+        if (depth > 0) {
+          builder.append(")")
+        }
+
         operator match {
           case And => builder.append(" && ")
           case Or => builder.append(" || ")
-          // This should never happen
-          case _ => throw new UnsupportedOperationException(s"Operator $operator cannot be used in authorization logic")
-        }
-        right match {
-          case AuthValue(name) => builder.append(writeApprovalVarRef(transition, name))
-          case authCombo => builder.append(s"(${writeAuthClause(transition, authCombo)})")
         }
 
-        builder.toString()
+        if (depth > 0) {
+          builder.append("(")
+        }
+        builder.append(writeAuthClause(transition, right, depth + 1))
+        if (depth > 0) {
+          builder.append(")")
+        }
     }
+    builder.toString()
+  }
 
   def writeSpecification(specification: Specification): String = specification match {
     case Specification(name, stateMachine, _) =>

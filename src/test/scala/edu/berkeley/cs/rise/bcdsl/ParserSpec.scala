@@ -60,4 +60,38 @@ class ParserSpec extends FunSuite {
       case Some(err) => println(err)
     }
   }
+
+  test("Parsing multi-sig wallet state machine") {
+    val spec = parseFile("simpleMultiSig.txt")
+    println(spec)
+    println("---------")
+    spec.stateMachine.validate() match {
+      case None =>
+        println(Solidity.writeSpecification(spec))
+        println("----")
+        println(PlusCal.writeSpecification(spec))
+        println("----")
+        println(TLA.writeSpecificationToAux(spec))
+        println("----")
+        println(TLA.writeSpecificationToConfig(spec))
+      case Some(err) => println(err)
+    }
+  }
+
+  test("Parsing majority vote multi-sig wallet") {
+    val spec = parseFile("majorityMultiSig.txt")
+    println(spec)
+    println("---------")
+    spec.stateMachine.validate() match {
+      case None =>
+        println(Solidity.writeSpecification(spec))
+        println("----")
+        println(PlusCal.writeSpecification(spec))
+        println("----")
+        println(TLA.writeSpecificationToAux(spec))
+        println("----")
+        println(TLA.writeSpecificationToConfig(spec))
+      case Some(err) => println(err)
+    }
+  }
 }

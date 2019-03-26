@@ -73,7 +73,7 @@ object TLA {
   private def writeLTLProperty(property: LTLProperty): String = property match {
     case LTLProperty(op, Left(prop)) => s"${writeLTLOperator(op)}(${writeLTLProperty(prop)})\n"
     case LTLProperty(op, Right(expr)) => expr match {
-      case ValueExpression(VarRef(name)) => s"${writeLTLOperator(op)}(__currentState = ${name.toUpperCase()})"
+      case VarRef(name) => s"${writeLTLOperator(op)}(__currentState = ${name.toUpperCase()})"
       case _ => s"${writeLTLOperator(op)}(${writeExpression(expr)})"
     }
   }
@@ -86,23 +86,22 @@ object TLA {
   private def writeExpression(expression: Expression): String = {
     val builder = new StringBuilder()
     expression match {
-      case ValueExpression(value) => value match {
-        case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
-        case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
-        case IntConst(v) => builder.append(v)
-        case StringLiteral(s) => builder.append("\"" + s + "\"")
-        case BoolConst(b) => builder.append(b.toString.toUpperCase)
-        case Second => builder.append("1")
-        case Minute => builder.append("60")
-        case Hour => builder.append("3600")
-        case Day => builder.append("86400")
-        case Week => builder.append("604800")
-      }
+      case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
+      case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
+      case IntConst(v) => builder.append(v)
+      case StringLiteral(s) => builder.append("\"" + s + "\"")
+      case BoolConst(b) => builder.append(b.toString.toUpperCase)
+      case Second => builder.append("1")
+      case Minute => builder.append("60")
+      case Hour => builder.append("3600")
+      case Day => builder.append("86400")
+      case Week => builder.append("604800")
 
-      case ArithmeticExpression(left, op, right) =>
+      case ArithmeticOperation(left, op, right) =>
         left match {
-          case ValueExpression(_) => builder.append(writeExpression(left))
-          case _ => builder.append(s"(${writeExpression(left)})")
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
+          case _ => builder.append(writeExpression(left))
         }
 
         op match {
@@ -113,14 +112,16 @@ object TLA {
         }
 
         right match {
-          case ValueExpression(_) => builder.append(writeExpression(right))
-          case _ => builder.append(s"(${writeExpression(right)})")
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
+          case _ => builder.append(writeExpression(left))
         }
 
-      case LogicalExpression(left, op, right) =>
+      case LogicalOperation(left, op, right) =>
         left match {
-          case ValueExpression(_) => builder.append(writeExpression(left))
-          case _ => builder.append(s"(${writeExpression(left)})")
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
+          case _ => builder.append(writeExpression(left))
         }
 
         op match {
@@ -135,8 +136,9 @@ object TLA {
         }
 
         right match {
-          case ValueExpression(_) => builder.append(writeExpression(right))
-          case _ => builder.append(s"(${writeExpression(right)})")
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
+          case _ => builder.append(writeExpression(left))
         }
     }
 

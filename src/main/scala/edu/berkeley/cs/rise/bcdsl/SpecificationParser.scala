@@ -15,7 +15,8 @@ object SpecificationParser extends JavaTokenParsers {
     "Timestamp" ^^^ Timestamp |
     "Timespan" ^^^ Timespan |
     "Bool" ^^^ Bool |
-    "Mapping" ~ "[" ~> dataTypeDecl ~ "," ~ dataTypeDecl <~ "]" ^^ { case keyType ~ "," ~ valueType => Mapping(keyType, valueType) }
+    "Mapping" ~ "[" ~> dataTypeDecl ~ "," ~ dataTypeDecl <~ "]" ^^ { case keyType ~ "," ~ valueType => Mapping(keyType, valueType) } |
+    "Sequence" ~ "[" ~> dataTypeDecl <~ "]" ^^ (elementType => Sequence(elementType))
 
   def variableDecl: Parser[Variable] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Variable(name, ty) }
 
@@ -23,7 +24,7 @@ object SpecificationParser extends JavaTokenParsers {
 
   def fieldList: Parser[Seq[Variable]] = "data" ~ "{" ~> rep(variableDecl) <~ "}"
 
-  def valueDecl: Parser[SimpleValue] = "true" ^^^ BoolConst(true) |
+  def valueDecl: Parser[Expression] = "true" ^^^ BoolConst(true) |
     "false" ^^^ BoolConst(false) |
     "seconds" ^^^ Second |
     "minutes" ^^^ Minute |
@@ -40,38 +41,53 @@ object SpecificationParser extends JavaTokenParsers {
 
   def plusMinus: Parser[ArithmeticOperator] = "+" ^^^ Plus | "-" ^^^ Minus
 
-  def booleanOp: Parser[LogicalOperator] = "&&" ^^^ And | "||" ^^^ Or
+  def booleanOp: Parser[BooleanOperator] = "&&" ^^^ And | "||" ^^^ Or
 
-  def comparator: Parser[LogicalOperator] = "==" ^^^ Equal |
+  def comparator: Parser[Comparator] = "==" ^^^ Equal |
     "!=" ^^^ NotEqual |
     ">=" ^^^ GreaterThanOrEqual |
     "<=" ^^^ LessThanOrEqual |
     "<" ^^^ LessThan |
     ">" ^^^ GreaterThan
 
-  def factor: Parser[Expression] = valueDecl ^^ ValueExpression | "(" ~> arithmeticExpression <~ ")"
+  def factor: Parser[Expression] = valueDecl | "(" ~> expression <~ ")"
 
   def term: Parser[Expression] = chainl1(factor, multDiv ^^
-    (op => (left: Expression, right: Expression) => ArithmeticExpression(left, op, right)))
+    (op => (left: Expression, right: Expression) => ArithmeticOperation(left, op, right)))
 
   // Note: It's possible we could do something fancy like declaring this as a Parser[ArithmeticExpression]
   // And enforcing more structure on the arithmetic/logical expressions at parse time
   // But let's leave this to the type checker, where it likely belongs
-  def arithmeticExpression: Parser[Expression] = chainl1(term, plusMinus ^^
-    (op => (left: Expression, right: Expression) => ArithmeticExpression(left, op, right)))
+  def expression: Parser[Expression] = chainl1(term, plusMinus ^^
+    (op => (left: Expression, right: Expression) => ArithmeticOperation(left, op, right)))
 
-  def atom: Parser[Expression] = arithmeticExpression | "(" ~> logicalExpression <~ ")"
+  def atom: Parser[Expression] = expression | "(" ~> logicalExpression <~ ")"
 
   def clause: Parser[Expression] = chainl1(atom, comparator ^^
-    (op => (left: Expression, right: Expression) => LogicalExpression(left, op, right)))
+    (op => (left: Expression, right: Expression) => LogicalOperation(left, op, right)))
 
   def logicalExpression: Parser[Expression] = chainl1(clause, booleanOp ^^
-    (op => (left: Expression, right: Expression) => LogicalExpression(left, op, right)))
+    (op => (left: Expression, right: Expression) => LogicalOperation(left, op, right)))
 
-  def authClause: Parser[AuthDecl] = ident ^^ AuthValue | "(" ~> authExpression <~ ")"
+  def sequenceMembership: Parser[Expression] = expression ~ opt("not") ~ "in" ~ expression ^^
+    { case element ~ negation ~ "in" ~ sequence  => SequenceMembership(sequence, element, negation.isDefined) }
 
-  def authExpression: Parser[AuthDecl] = chainl1(authClause, booleanOp ^^
-    (op => (left: AuthDecl, right: AuthDecl) => AuthCombination(left, op, right)))
+  def authTerm: Parser[AuthExpression] = "any" ~> ident ^^ AuthAny |
+    "all" ~> ident ^^ AuthAll |
+    ident ^^ IdentityLiteral |
+    "(" ~> authExpression <~ ")"
+
+  def authExpression: Parser[AuthExpression] = chainl1(authTerm, booleanOp ^^
+    (op => (left: AuthExpression, right: AuthExpression) => AuthCombination(left, op, right)))
+
+  def authAnnotation: Parser[AuthExpression] = "authorized" ~ "[" ~> authExpression <~ "]"
+
+  def guardAnnotation: Parser[Expression] = "requires" ~ "[" ~> logicalExpression <~ "]"
+
+  def assignment: Parser[Assignment] = assignable ~ "=" ~ (expression | logicalExpression) ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs) }
+
+  def send: Parser[Send] = "send" ~ expression ~ "to" ~ expression ~ opt("consuming" ~> assignable) ^^
+    { case "send" ~ amountExpr ~ "to" ~ destExpr ~ source => Send(destExpr, amountExpr, source) }
 
   def parameterList: Parser[Seq[Variable]] = "(" ~> rep1sep(variableDecl, ",") <~ ")"
 
@@ -80,22 +96,13 @@ object SpecificationParser extends JavaTokenParsers {
       (origin, parameters, destination)
     }
 
-  def authAnnotation: Parser[AuthDecl] = "authorized" ~ "[" ~> authExpression <~ "]"
+  def sendAndConsume: Parser[Send] = "sendAndConsume" ~ assignable ~ "to" ~ expression ^^
+    { case "sendAndConsume" ~ amount ~ "to" ~ destExpr => Send(destExpr, amount, Some(amount))}
 
-  def guardAnnotation: Parser[Expression] = "requires" ~ "[" ~> logicalExpression <~ "]"
+  def sequenceAddition: Parser[SequenceAppend] = "add" ~ expression ~ "to" ~ expression ^^
+    { case "add" ~ element ~ "to" ~ set => SequenceAppend(set, element) }
 
-  def assignment: Parser[Assignment] = assignable ~ "=" ~ (arithmeticExpression | logicalExpression) ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs) }
-
-  def send: Parser[Send] = "send" ~ arithmeticExpression ~ "to" ~ arithmeticExpression ~ opt("consuming" ~ assignable) ^^
-    { case "send" ~ amountExpr ~ "to" ~ destExpr ~ source => source match {
-        case None => Send(destExpr, amountExpr, None)
-        case Some("consuming" ~ sourceRef) => Send(destExpr, amountExpr, Some(sourceRef))
-        // This should never happen, just here to make match exhaustive
-        case Some(_) => throw new IllegalStateException("Matched fallthrough pattern when parsing 'send'")
-      }
-    }
-
-  def statement: Parser[Statement] = assignment | send
+  def statement: Parser[Statement] = assignment | send | sequenceAddition
 
   def transitionBody: Parser[Seq[Statement]] = "{" ~> rep(statement) <~ "}"
 

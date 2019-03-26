@@ -3,13 +3,13 @@ package edu.berkeley.cs.rise.bcdsl
 case class Variable(name: String, ty: DataType)
 
 case class Transition(name: String, origin: Option[String], destination: String, parameters: Option[Seq[Variable]],
-                      authorized: Option[AuthDecl], auto: Boolean, guard: Option[Expression], body: Option[Seq[Statement]]) {
+                      authorized: Option[AuthExpression], auto: Boolean, guard: Option[Expression], body: Option[Seq[Statement]]) {
   val description: String = s"$name: '${origin.getOrElse("")}' -> '$destination'"
 
   private def makeTypeErrMsg(idx: Int, msg: String): String =
     s"Type error on statement ${idx + 1} of transition $description: $msg"
 
-  def validate(context: Map[String, DataType], principals: Set[String]): Option[String] = {
+  def validate(context: Map[String, DataType]): Option[String] = {
     val paramsMap = parameters.fold(Map.empty[String, DataType]) { params =>
       params.map(variable => variable.name -> variable.ty).toMap
     }
@@ -46,12 +46,13 @@ case class Transition(name: String, origin: Option[String], destination: String,
       }
     }
 
-    // Check that authorization clause does not reference undefined identities
-    for (authDecl <- authorized) {
-      val ids = authDecl.extractIdentities
-      val unknownIds = ids.diff(principals)
-      if (unknownIds.nonEmpty) {
-        return Some(s"Transition $description references unknown identities: ${unknownIds.mkString(", ")}")
+    // Check that authorization clause does not reference undefined identities or invalid types
+    for (term <- authorized.fold(Set.empty[AuthTerm])(_.flatten)) {
+      val name = term.getReferencedName
+      context.get(name) match {
+        case None => return Some(s"Transition $description references unknown identities $name")
+        case Some(Identity) | Some(Sequence(Identity)) => ()
+        case Some(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
       }
     }
 
@@ -141,12 +142,11 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
       return Some("Unreachable states: " + unreachableStates.mkString(", "))
     }
 
-    val principals = fields.filter(_.ty == Identity).map(_.name).toSet
     val context = fields.foldLeft(Specification.RESERVED_VALUES) { (ctx, field) =>
       ctx + (field.name -> field.ty)
     }
     for (transition <- transitions) {
-      transition.validate(context, principals).foreach(err => return Some(err))
+      transition.validate(context).foreach(err => return Some(err))
     }
 
     None
