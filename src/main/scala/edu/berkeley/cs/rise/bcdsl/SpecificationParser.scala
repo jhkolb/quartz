@@ -43,6 +43,8 @@ object SpecificationParser extends JavaTokenParsers {
 
   def booleanOp: Parser[BooleanOperator] = "&&" ^^^ And | "||" ^^^ Or
 
+  def sequenceOp: Parser[SequenceOperator] = "in" ^^^ In | "not in" ^^^ NotIn
+
   def comparator: Parser[Comparator] = "==" ^^^ Equal |
     "!=" ^^^ NotEqual |
     ">=" ^^^ GreaterThanOrEqual |
@@ -50,7 +52,9 @@ object SpecificationParser extends JavaTokenParsers {
     "<" ^^^ LessThan |
     ">" ^^^ GreaterThan
 
-  def factor: Parser[Expression] = valueDecl | "(" ~> expression <~ ")"
+  def sequenceSize: Parser[SequenceSize] = "size" ~ "(" ~> expression <~ ")" ^^ SequenceSize
+
+  def factor: Parser[Expression] = sequenceSize | valueDecl | "(" ~> expression <~ ")"
 
   def term: Parser[Expression] = chainl1(factor, multDiv ^^
     (op => (left: Expression, right: Expression) => ArithmeticOperation(left, op, right)))
@@ -66,11 +70,12 @@ object SpecificationParser extends JavaTokenParsers {
   def clause: Parser[Expression] = chainl1(atom, comparator ^^
     (op => (left: Expression, right: Expression) => LogicalOperation(left, op, right)))
 
-  def logicalExpression: Parser[Expression] = chainl1(clause, booleanOp ^^
+  // l2 is short for "Level 2", as in lower operator precedence. Maybe need a better name
+  def l2Clause: Parser[Expression] = chainl1(clause, sequenceOp ^^
     (op => (left: Expression, right: Expression) => LogicalOperation(left, op, right)))
 
-  def sequenceMembership: Parser[Expression] = expression ~ opt("not") ~ "in" ~ expression ^^
-    { case element ~ negation ~ "in" ~ sequence  => SequenceMembership(sequence, element, negation.isDefined) }
+  def logicalExpression: Parser[Expression] = chainl1(l2Clause, booleanOp ^^
+    (op => (left: Expression, right: Expression) => LogicalOperation(left, op, right)))
 
   def authTerm: Parser[AuthExpression] = "any" ~> ident ^^ AuthAny |
     "all" ~> ident ^^ AuthAll |
@@ -84,17 +89,10 @@ object SpecificationParser extends JavaTokenParsers {
 
   def guardAnnotation: Parser[Expression] = "requires" ~ "[" ~> logicalExpression <~ "]"
 
-  def assignment: Parser[Assignment] = assignable ~ "=" ~ (expression | logicalExpression) ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs) }
+  def assignment: Parser[Assignment] = assignable ~ "=" ~ expression ^^ { case lhs ~ "=" ~ rhs => Assignment(lhs, rhs) }
 
   def send: Parser[Send] = "send" ~ expression ~ "to" ~ expression ~ opt("consuming" ~> assignable) ^^
     { case "send" ~ amountExpr ~ "to" ~ destExpr ~ source => Send(destExpr, amountExpr, source) }
-
-  def parameterList: Parser[Seq[Variable]] = "(" ~> rep1sep(variableDecl, ",") <~ ")"
-
-  def stateChange: Parser[(Option[String], Option[Seq[Variable]], String)] =
-    opt(ident) ~ "->" ~ opt(parameterList) ~ ident ^^ { case origin ~ "->" ~ parameters ~ destination =>
-      (origin, parameters, destination)
-    }
 
   def sendAndConsume: Parser[Send] = "sendAndConsume" ~ assignable ~ "to" ~ expression ^^
     { case "sendAndConsume" ~ amount ~ "to" ~ destExpr => Send(destExpr, amount, Some(amount))}
@@ -102,7 +100,14 @@ object SpecificationParser extends JavaTokenParsers {
   def sequenceAddition: Parser[SequenceAppend] = "add" ~ expression ~ "to" ~ expression ^^
     { case "add" ~ element ~ "to" ~ set => SequenceAppend(set, element) }
 
-  def statement: Parser[Statement] = assignment | send | sequenceAddition
+  def statement: Parser[Statement] = assignment | send | sendAndConsume | sequenceAddition
+
+  def parameterList: Parser[Seq[Variable]] = "(" ~> rep1sep(variableDecl, ",") <~ ")"
+
+  def stateChange: Parser[(Option[String], Option[Seq[Variable]], String)] =
+    opt(ident) ~ "->" ~ opt(parameterList) ~ ident ^^ { case origin ~ "->" ~ parameters ~ destination =>
+      (origin, parameters, destination)
+    }
 
   def transitionBody: Parser[Seq[Statement]] = "{" ~> rep(statement) <~ "}"
 

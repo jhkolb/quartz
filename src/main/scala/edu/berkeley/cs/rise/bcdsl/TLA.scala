@@ -83,6 +83,7 @@ object TLA {
     case Eventually => "<>"
   }
 
+  // TODO deal with code duplication between this and PlusCal
   private def writeExpression(expression: Expression): String = {
     val builder = new StringBuilder()
     expression match {
@@ -117,6 +118,16 @@ object TLA {
           case _ => builder.append(writeExpression(left))
         }
 
+      case LogicalOperation(element, op @ (In | NotIn), sequence) =>
+        if (op == NotIn) {
+          builder.append("~(")
+        }
+        builder.append(s"\\E x \\in DOMAIN ${writeExpression(sequence)}: ")
+        builder.append(s"${writeExpression(sequence)}[x] = ${writeExpression(element)}")
+        if (op == NotIn) {
+          builder.append(")")
+        }
+
       case LogicalOperation(left, op, right) =>
         left match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
@@ -133,6 +144,7 @@ object TLA {
           case GreaterThan => builder.append(" > ")
           case And => builder.append(" /\\ ")
           case Or => builder.append(" \\/ ")
+          case In | NotIn => throw new IllegalArgumentException // This should never be reached
         }
 
         right match {
@@ -140,6 +152,8 @@ object TLA {
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
           case _ => builder.append(writeExpression(left))
         }
+
+      case SequenceSize(sequence) => builder.append(s"Len(${writeExpression(sequence)})")
     }
 
     builder.toString()

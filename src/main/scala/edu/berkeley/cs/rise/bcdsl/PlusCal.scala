@@ -31,6 +31,7 @@ object PlusCal {
     case Timespan => "0..MAX_INT"
     case String => throw new NotImplementedError("Strings have infinite domain") // TODO
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType)} -> ${writeDomain(valueType)} ]"
+    case Sequence(elementType) => s"[ x \\in 1..MAX_INT -> ${writeDomain(elementType)} ]"
   }
 
   private def writeZeroElement(ty: DataType): String = ty match {
@@ -41,6 +42,7 @@ object PlusCal {
     case Bool => "FALSE"
     case Timespan => "0"
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType)} |-> ${writeZeroElement(valueType)} ]"
+    case Sequence(_) => "<<>>"
   }
 
   private def writeField(field: Variable): String = s"${field.name} = ${writeZeroElement(field.ty)}"
@@ -163,6 +165,16 @@ object PlusCal {
           case _ => builder.append(writeExpression(left))
         }
 
+      case LogicalOperation(element, op@(In | NotIn), sequence) =>
+        if (op == NotIn) {
+          builder.append("~(")
+        }
+        builder.append(s"\\E x \\in DOMAIN ${writeExpression(sequence)}: ")
+        builder.append(s"${writeExpression(sequence)}[x] = ${writeExpression(element)}")
+        if (op == NotIn) {
+          builder.append(")")
+        }
+
       case LogicalOperation(left, op, right) =>
         left match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
@@ -179,6 +191,7 @@ object PlusCal {
           case GreaterThan => builder.append(" > ")
           case And => builder.append(" /\\ ")
           case Or => builder.append(" \\/ ")
+          case In | NotIn => throw new IllegalArgumentException // This should never be reached
         }
 
         right match {
@@ -186,7 +199,10 @@ object PlusCal {
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
           case _ => builder.append(writeExpression(left))
         }
+
+      case SequenceSize(sequence) => builder.append(s"Len(${writeExpression(sequence)})")
     }
+
 
     builder.toString()
   }
@@ -198,6 +214,7 @@ object PlusCal {
 
   private def writeStatement(statement: Statement): String = statement match {
     case Assignment(left, right) => writeLine(s"${writeAssignable(left)} := ${writeExpression(right)};")
+
     case Send(destination, amount, source) => source match {
       case None => writeLine(s"call sendTokens(${writeExpression(destination)}, ${writeExpression(amount)});") + nextLabel() + "\n"
       case Some(s) =>
@@ -208,6 +225,9 @@ object PlusCal {
         builder.append(nextLabel() + "\n")
         builder.toString()
     }
+
+    case SequenceAppend(sequence, element) =>
+      s"Append(${writeExpression(sequence)}, ${writeExpression(element)})"
   }
 
   private def nextLabel(): String = {

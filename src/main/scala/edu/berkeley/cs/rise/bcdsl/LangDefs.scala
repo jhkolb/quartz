@@ -51,19 +51,6 @@ case class MappingRef(mapName: String, key: Expression) extends Assignable {
   }
 }
 
-case class SequenceMembership(sequence: Expression, element: Expression, negation: Boolean) extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = sequence.getType(context) match {
-    case Left(err) => Left(s"Type error in sequence expression: $err")
-    case Right(Sequence(elementType)) => element.getType(context) match {
-      case Left(err) => Left(s"Type error in sequence element expression: $err")
-      case Right(ty) if elementType == ty =>
-        Right(Bool)
-      case Right(ty) => Left(s"Expected sequence element of type $elementType but found expression of type $ty")
-    }
-    case Right(ty) => Left(s"Cannot compute membership of non-sequence type $ty")
-  }
-}
-
 sealed trait LogicalOperator
 
 sealed trait Comparator extends LogicalOperator
@@ -77,6 +64,10 @@ case object GreaterThanOrEqual extends Comparator
 sealed trait BooleanOperator extends LogicalOperator
 case object And extends BooleanOperator
 case object Or extends BooleanOperator
+
+sealed trait SequenceOperator extends LogicalOperator
+case object In extends SequenceOperator
+case object NotIn extends SequenceOperator
 
 sealed trait ArithmeticOperator
 case object Plus extends ArithmeticOperator
@@ -114,6 +105,14 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
       case And | Or => if (leftTy != Bool) Left(s"Cannot apply AND/OR to $leftTy")
                        else if (rightTy != Bool) Left(s"Cannot apply AND/OR to $rightTy")
                        else Right(Bool)
+
+      case In | NotIn => rightTy match {
+        case Sequence(elementType) => leftTy match {
+          case ty if ty == elementType => Right(Bool)
+          case ty => Left(s"Cannot check element of type $ty for membership in sequence of $elementType instances")
+        }
+        case ty => Left(s"Cannot check membership of non-sequence type $ty")
+      }
     }
   ) yield resultTy
 }
@@ -160,6 +159,15 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
   ) yield resultTy
 }
 
+case class SequenceSize(sequence: Expression) extends Expression {
+  override def getType(context: Map[String, DataType]): Either[String, DataType] =
+    sequence.getType(context) match {
+      case err @ Left(_) => err
+      case Right(Sequence(_)) => Right(Int)
+      case Right(ty) => Left(s"Cannot compute size of non-sequence type $ty")
+    }
+}
+
 case class LTLProperty(operator: LTLOperator, body: Either[LTLProperty, Expression])
 
 sealed trait AuthExpression {
@@ -195,4 +203,4 @@ case class AuthCombination(left: AuthExpression, operator: BooleanOperator, righ
 sealed trait Statement
 case class Assignment(left: Assignable, right: Expression) extends Statement
 case class Send(destination: Expression, amount: Expression, source: Option[Assignable]) extends Statement
-case class SequenceAppend(set: Expression, element: Expression) extends Statement
+case class SequenceAppend(sequence: Expression, element: Expression) extends Statement

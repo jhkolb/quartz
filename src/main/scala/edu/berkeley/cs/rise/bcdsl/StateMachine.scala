@@ -56,8 +56,7 @@ case class Transition(name: String, origin: Option[String], destination: String,
       }
     }
 
-    // Check that transition body doesn't reference undefined fields
-    // And type check all field assignments
+    // Type check all transition body statements
     for ((statement, i) <- body.getOrElse(Seq.empty[Statement]).zipWithIndex) {
       statement match {
         case Assignment(lhs, rhs) =>
@@ -92,6 +91,17 @@ case class Transition(name: String, origin: Option[String], destination: String,
               return Some(makeTypeErrMsg(i, s"Expected send to consume var of type Int, but found type $sourceTy"))
             case Right(_) => ()
           })
+
+        case SequenceAppend(sequence, element) => sequence.getType(localContext) match {
+          case Left(err) => return Some(makeTypeErrMsg(i, err))
+          case Right(Sequence(elementTy)) => element.getType(localContext) match {
+            case Left(err) => return Some(makeTypeErrMsg(i, err))
+            case Right(ty) if ty == elementTy => ()
+            case Right(ty) =>
+              return Some(makeTypeErrMsg(i, s"Cannot append $ty instance to sequence of $elementTy instances"))
+          }
+          case Right(ty) => return Some(makeTypeErrMsg(i, s"Cannot append to non-sequence type $ty"))
+        }
       }
     }
     None

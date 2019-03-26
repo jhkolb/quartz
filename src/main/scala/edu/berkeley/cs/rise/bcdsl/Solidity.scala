@@ -25,6 +25,7 @@ object Solidity {
       case Bool => "bool"
       case Timespan => "uint"
       case Mapping(keyType, valueType) => s"mapping(${writeType(keyType)} => ${writeType(valueType)})"
+      case Sequence(elementType) => s"${writeType(elementType)}[]"
     }
 
   private def writeField(field: Variable): String =
@@ -67,6 +68,12 @@ object Solidity {
           case _ => builder.append(writeExpression(right))
         }
 
+      case LogicalOperation(element, In, sequence) =>
+        builder.append(s"sequenceContains(${writeExpression(sequence)}, ${writeExpression(element)})")
+
+      case LogicalOperation(element, NotIn, sequence) =>
+        builder.append(s"!(sequenceContains(${writeExpression(sequence)}, ${writeExpression(element)})")
+
       case LogicalOperation(left, operator, right) =>
         left match {
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
@@ -83,6 +90,7 @@ object Solidity {
           case GreaterThan => builder.append(" > ")
           case And => builder.append(" && ")
           case Or => builder.append(" || ")
+          case In | NotIn => throw new IllegalArgumentException // This should never be reached
         }
 
         right match {
@@ -90,6 +98,8 @@ object Solidity {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
           case _ => builder.append(writeExpression(right))
         }
+
+      case SequenceSize(sequence) => builder.append(s"${writeExpression(sequence)}.length")
     }
 
     builder.toString()
@@ -107,6 +117,7 @@ object Solidity {
 
   private def writeStatement(statement: Statement): String = statement match {
     case Assignment(left, right) => writeLine(s"${writeAssignable(left)} = ${writeExpression(right)};")
+
     case Send(destination, amount, source) =>
       val destStr = destination match {
         case ArithmeticOperation(_, _, _) => s"(${writeExpression(destination)})"
@@ -123,6 +134,9 @@ object Solidity {
           appendLine(builder, s"$destStr.transfer(uint(__temporary));")
           builder.toString()
       }
+
+    case SequenceAppend(sequence, element) =>
+      writeLine(s"${writeExpression(sequence)}.pop(${writeExpression(element)});")
   }
 
   private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
@@ -251,7 +265,7 @@ object Solidity {
     // So we need to track combinations of parameters using a nested mapping, one layer per param
     val startingPoint = term match {
       case IdentityLiteral(_) | AuthAny(_) => "bool"
-      case AuthAny(_) => "mapping(address => bool)"
+      case AuthAll(_) => "mapping(address => bool)"
     }
     transition.parameters.getOrElse(Seq.empty[Variable]).foldRight(startingPoint) { case (param, current) =>
       s"mapping(${writeType(param.ty)} => $current)"

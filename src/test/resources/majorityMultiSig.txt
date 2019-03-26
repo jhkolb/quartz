@@ -1,0 +1,32 @@
+contract MajorityMultiSig {
+    data {
+      Signers: Sequence[Identity]
+      PendingDisbursements: Mapping[Identity, Int]
+      Approvals: Mapping[Identity, Sequence[Identity]]
+    }
+
+    initialize: ->(cosigner: Identity) open {
+        add sender to Signers
+    }
+
+    addCosigner: open ->(newSigner: Identity) open authorized [ any Signers ] {
+        add newSigner to Signers
+    }
+
+    proposeDisbursement: open ->(recipient: Identity, amount: Int) open
+    authorized [ any Signers ]
+    requires [ PendingDisbursements[recipient] == 0 && amount > 0 ] {
+        PendingDisbursements[recipient] = amount
+    }
+
+    approveDisbursement: open ->(recipient: Identity, amount: Int) open
+    authorized [ any Signers ]
+    requires [ PendingDisbursements[recipient] == amount && sender not in Approvals[recipient] ] {
+        add sender to Approvals[recipient]
+    }
+
+    sendDisbursement: open ->(recipient: Identity) open
+    requires [ PendingDisbursements[recipient] > 0 && size(Approvals[recipient]) > size(Signers)/2 ] {
+        sendAndConsume PendingDisbursements[recipient] to recipient
+    }
+}
