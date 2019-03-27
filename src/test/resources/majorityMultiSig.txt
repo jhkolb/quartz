@@ -9,7 +9,7 @@ contract MajorityMultiSig {
         add sender to Signers
     }
 
-    addCosigner: open ->(newSigner: Identity) open authorized [ any Signers ] {
+    addSigner: open ->(newSigner: Identity) open authorized [ any Signers ] {
         add newSigner to Signers
     }
 

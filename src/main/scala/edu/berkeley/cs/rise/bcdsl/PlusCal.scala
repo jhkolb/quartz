@@ -162,7 +162,7 @@ object PlusCal {
         right match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
-          case _ => builder.append(writeExpression(left))
+          case _ => builder.append(writeExpression(right))
         }
 
       case LogicalOperation(element, op@(In | NotIn), sequence) =>
@@ -197,7 +197,7 @@ object PlusCal {
         right match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
-          case _ => builder.append(writeExpression(left))
+          case _ => builder.append(writeExpression(right))
         }
 
       case SequenceSize(sequence) => builder.append(s"Len(${writeExpression(sequence)})")
@@ -227,7 +227,7 @@ object PlusCal {
     }
 
     case SequenceAppend(sequence, element) =>
-      s"Append(${writeExpression(sequence)}, ${writeExpression(element)})"
+      writeLine(s"Append(${writeExpression(sequence)}, ${writeExpression(element)});")
   }
 
   private def nextLabel(): String = {
@@ -278,6 +278,7 @@ object PlusCal {
             indentationLevel += 1
             appendLine(builder, "return;")
             indentationLevel -= 1
+            appendLine(builder, "end if;")
             builder.append(nextLabel() + "\n")
 
           case AuthAll(collectionName) =>
@@ -289,6 +290,8 @@ object PlusCal {
             indentationLevel += 1
             appendLine(builder, "return;")
             indentationLevel -= 1
+            appendLine(builder, "end if;")
+            builder.append(nextLabel() + "\n")
         }
       } else {
         subTerms.zipWithIndex.foreach { case (subTerm, i) =>

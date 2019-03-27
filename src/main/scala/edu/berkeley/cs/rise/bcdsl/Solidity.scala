@@ -72,7 +72,7 @@ object Solidity {
         builder.append(s"sequenceContains(${writeExpression(sequence)}, ${writeExpression(element)})")
 
       case LogicalOperation(element, NotIn, sequence) =>
-        builder.append(s"!(sequenceContains(${writeExpression(sequence)}, ${writeExpression(element)})")
+        builder.append(s"!(sequenceContains(${writeExpression(sequence)}, ${writeExpression(element)}))")
 
       case LogicalOperation(left, operator, right) =>
         left match {
@@ -122,7 +122,7 @@ object Solidity {
       val destStr = destination match {
         case ArithmeticOperation(_, _, _) => s"(${writeExpression(destination)})"
         case LogicalOperation(_, _, _) => s"(${writeExpression(destination)})"
-        case _ => s"(${writeExpression(destination)};)"
+        case _ => writeExpression(destination)
       }
       source match {
         // TODO we just convert to uint as needed for now, but this assumes amount >= 0
@@ -136,7 +136,7 @@ object Solidity {
       }
 
     case SequenceAppend(sequence, element) =>
-      writeLine(s"${writeExpression(sequence)}.pop(${writeExpression(element)});")
+      writeLine(s"${writeExpression(sequence)}.push(${writeExpression(element)});")
   }
 
   private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
@@ -186,7 +186,7 @@ object Solidity {
           case IdentityLiteral(identity) =>
             appendLine(builder, s"require(${RESERVED_NAME_TRANSLATIONS("sender")} == $identity);")
           case AuthAny(collectionName) =>
-            appendLine(builder, s"requires(sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")});")
+            appendLine(builder, s"require(sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")}));")
           case AuthAll(collectionName) =>
             appendLine(builder, s"${writeApprovalVarRef(transition, subTerms.head)} = true;")
             val varName = writeApprovalVarName(transition, subTerms.head).dropRight(s"[${RESERVED_NAME_TRANSLATIONS("sender")}]".length())
