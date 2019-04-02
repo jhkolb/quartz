@@ -1,13 +1,18 @@
 package edu.berkeley.cs.rise.bcdsl
 
 object Solidity {
+  private val SOLIDITY_VERSION: String = "0.5.7"
+
   private val INDENTATION_STR: String = "    "
   private val CURRENT_STATE_VAR: String = "__currentState"
   private val RESERVED_NAME_TRANSLATIONS: Map[String, String] = Map[String, String](
     "balance" -> "balance",
     "now" -> "now",
     "sender" -> "msg.sender",
+    "tokens" -> "int(msg.value)",
   )
+
+  private val BUILTIN_PARAMS: Set[String] = Set("tokens")
 
   private var indentationLevel: Integer = 0
 
@@ -143,13 +148,22 @@ object Solidity {
     val builder = new StringBuilder()
 
     val paramsRepr = transition.parameters.fold("") { params =>
-      val payableParams = extractPayableVars(transition.body.getOrElse(Seq.empty[Statement]), params.map(_.name).toSet)
-      writeParameters(params.zip(params.map(p => payableParams.contains(p.name))))
+      // Remove parameters that are used in the original source but are built in to Solidity
+      val effectiveParams = params.filter(p => !BUILTIN_PARAMS.contains(p.name))
+      val payableParams = extractPayableVars(transition.body.getOrElse(Seq.empty[Statement]), effectiveParams.map(_.name).toSet)
+      writeParameters(effectiveParams.zip(effectiveParams.map(p => payableParams.contains(p.name))))
     }
-    if (transition.origin.isDefined) {
-      appendLine(builder, s"function ${transition.name}($paramsRepr) public {")
+
+    val payable = if (transition.parameters.getOrElse(Seq.empty[Variable]).exists(_.name == "tokens")) {
+      "payable "
     } else {
-      appendLine(builder, s"constructor($paramsRepr) public {")
+      ""
+    }
+
+    if (transition.origin.isDefined) {
+      appendLine(builder, s"function ${transition.name}($paramsRepr) public $payable{")
+    } else {
+      appendLine(builder, s"constructor($paramsRepr) public $payable{")
     }
     indentationLevel += 1
 
@@ -202,7 +216,7 @@ object Solidity {
             case IdentityLiteral(identity) =>
               appendLine(builder, s"$conditional (${RESERVED_NAME_TRANSLATIONS("sender")} == $identity) {")
               indentationLevel += 1
-              appendLine(builder, s"{${writeApprovalVarRef(transition, subTerm)} = true;")
+              appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} = true;")
               indentationLevel -= 1
               appendLine(builder, "}")
 
@@ -345,7 +359,7 @@ object Solidity {
   def writeSpecification(specification: Specification): String = specification match {
     case Specification(name, stateMachine, _) =>
       val builder = new StringBuilder()
-      appendLine(builder, "pragma solidity >0.4.21;\n")
+      appendLine(builder, s"pragma solidity >=$SOLIDITY_VERSION;\n")
       appendLine(builder, s"contract $name {")
 
       val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
@@ -358,7 +372,7 @@ object Solidity {
       indentationLevel += 1
       appendLine(builder, "enum State {")
       indentationLevel += 1
-      stateMachine.states.zipWithIndex.foreach { case (stateName, i) =>
+      stateMachine.states.toSeq.zipWithIndex.foreach { case (stateName, i) =>
         appendLine(builder, if (i < stateMachine.states.size - 1) stateName + "," else stateName)
       }
       indentationLevel -= 1
