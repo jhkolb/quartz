@@ -106,6 +106,16 @@ case class Transition(name: String, origin: Option[String], destination: String,
     }
     None
   }
+
+  def flattenExpressions(): Seq[Expression] = {
+    val bodyExpressions = body.fold(Seq.empty[Expression])(_.flatMap {
+      case Assignment(left, right) => Seq(left, right)
+      case SequenceAppend(sequence, element) => Seq(sequence, element)
+      case Send(dest, amount, Some(source)) => Seq(dest, amount, source)
+      case Send(dest, amount, None) => Seq(dest, amount)
+    })
+    guard.fold(bodyExpressions)(_ +: bodyExpressions)
+  }
 }
 
 case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
@@ -162,6 +172,9 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
     None
   }
 
+  def flattenExpressions: Seq[Expression] = transitions.flatMap(_.flattenExpressions())
+
+  def flattenStatements: Seq[Statement] = transitions.flatMap(_.body.getOrElse(Seq.empty[Statement]))
 }
 
 object StateMachine {

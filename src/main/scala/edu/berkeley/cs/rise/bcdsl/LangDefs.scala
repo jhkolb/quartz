@@ -10,34 +10,52 @@ case object Timespan extends DataType
 case class Mapping(keyType: DataType, valueType: DataType) extends DataType
 case class Sequence(elementType: DataType) extends DataType
 
-trait Typed {
-  def getType(context: Map[String, DataType]): Either[String, DataType]
+sealed abstract class Typed {
+  private var ty: Option[DataType] = None
+
+  protected def determineType(context: Map[String, DataType]): Either[String, DataType]
+
+  def getType(context: Map[String, DataType]): Either[String, DataType] = {
+    determineType(context) match {
+      case result @ Right(determinedTy) =>
+        ty = Some(determinedTy)
+        result
+      case err => err
+    }
+  }
+
+  // Convenience method for later stages of translation
+  // Should only be used *after* successful type checking
+  def determinedType: DataType = ty match {
+    case None => throw new IllegalStateException("Expression's type is still undetermined")
+    case Some(determinedTy) => determinedTy
+  }
 }
 
 sealed trait Expression extends Typed
 sealed trait Assignable extends Expression
 
 case class VarRef(name: String) extends Assignable {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = context.get(name) match {
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = context.get(name) match {
     case None => Left(s"Undefined field $name")
     case Some(ty) => Right(ty)
   }
 }
 
 case class IntConst(value: Int) extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Int)
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(Int)
 }
 
 case class StringLiteral(value: String) extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(String)
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(String)
 }
 
 case class BoolConst(value: Boolean) extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Bool)
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(Bool)
 }
 
 case class MappingRef(mapName: String, key: Expression) extends Assignable {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = context.get(mapName) match {
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = context.get(mapName) match {
     case None => Left(s"Undefined field $mapName")
     case Some(Mapping(keyType,valueType)) => key.getType(context) match {
       case Left(err) => Left(s"Type error in map key expression: $err")
@@ -80,7 +98,7 @@ case object Always extends LTLOperator
 case object Eventually extends LTLOperator
 
 sealed trait Timespan extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = Right(Timespan)
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(Timespan)
 }
 case object Second extends Timespan
 case object Minute extends Timespan
@@ -89,7 +107,7 @@ case object Day extends Timespan
 case object Week extends Timespan
 
 case class LogicalOperation(left: Expression, operator: LogicalOperator, right: Expression) extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = for (
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = for (
     leftTy <- left.getType(context);
     rightTy <- right.getType(context);
 
@@ -118,7 +136,7 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
 }
 
 case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, right: Expression) extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] = for (
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = for (
     leftTy <- left.getType(context);
     rightTy <- right.getType(context);
     resultTy <- leftTy match {
@@ -160,7 +178,7 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
 }
 
 case class SequenceSize(sequence: Expression) extends Expression {
-  override def getType(context: Map[String, DataType]): Either[String, DataType] =
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] =
     sequence.getType(context) match {
       case err @ Left(_) => err
       case Right(Sequence(_)) => Right(Int)

@@ -5,7 +5,7 @@ contract MajorityMultiSig {
       Approvals: Mapping[Identity, Sequence[Identity]]
     }
 
-    initialize: ->(cosigner: Identity) open {
+    initialize: -> open {
         add sender to Signers
     }
 
