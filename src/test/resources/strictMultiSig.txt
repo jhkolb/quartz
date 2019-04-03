@@ -1,0 +1,19 @@
+contract StrictMultiSig {
+    data {
+      Signers: Sequence[Identity]
+    }
+
+    initialize: -> open {
+        add sender to Signers
+    }
+
+    addSigner: open ->(newSigner: Identity) open authorized [ any Signers ] {
+        add newSigner to Signers
+    }
+
+    sendDisbursement: open ->(recipient: Identity, amount: Int) open
+    authorized [ all Signers ]
+    requires [ amount > 0 ] {
+        sendAndConsume amount to recipient
+    }
+}

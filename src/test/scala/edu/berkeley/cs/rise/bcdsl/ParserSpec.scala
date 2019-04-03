@@ -1,12 +1,28 @@
 package edu.berkeley.cs.rise.bcdsl
 
+import java.io.{File, PrintWriter}
+import java.nio.charset.StandardCharsets
+
 import org.scalatest.FunSuite
 
 import scala.io.Source
 
+object ParserSpec {
+  private val TEST_FILES: Seq[String] = Seq(
+    "minimal.txt",
+    "equipment.txt",
+    "auction.txt",
+    "simpleMultiSig.txt",
+    "majorityMultiSig.txt",
+    "strictMultiSig.txt",
+  )
+
+  private val OUTPUT_DIR = "testOutput"
+}
+
 class ParserSpec extends FunSuite {
   def parseFile(name: String): Specification = {
-    val input = Source.fromInputStream(getClass.getClassLoader.getResourceAsStream(name)).mkString
+    val input = Source.fromResource(name).mkString
     SpecificationParser.parseAll(SpecificationParser.specification, input) match {
       case SpecificationParser.Failure(msg, remaining) =>
         val nextInput = remaining.source.toString.substring(remaining.offset).takeWhile(_ != '\n')
@@ -18,80 +34,26 @@ class ParserSpec extends FunSuite {
     }
   }
 
-  test("Parsing a minimal state machine") {
-    val spec = parseFile("minimal.txt")
-    println(spec)
-    println("------------")
-    spec.stateMachine.validate() match {
-      case None =>
-        println(Solidity.writeSpecification(spec))
-        println("----")
-        println(PlusCal.writeSpecification(spec))
-      case Some(err) => println(err)
+  test("Parsing all test files") {
+    new File(ParserSpec.OUTPUT_DIR).mkdir()
+    ParserSpec.TEST_FILES.foreach { fileName =>
+      val unextendedName = fileName.substring(0, fileName.indexOf('.'))
+      val spec = parseFile(fileName)
+      writeFile(unextendedName + ".spec", spec.toString)
+
+      spec.stateMachine.validate() match {
+        case None =>
+          writeFile(unextendedName + ".sol", Solidity.writeSpecification(spec))
+          writeFile(unextendedName + ".tla", PlusCal.writeSpecification(spec))
+        case Some(err) =>
+          println(s"Error in $fileName: $err")
+      }
     }
   }
 
-  test("Parsing equipment warranty state machine") {
-    val spec = parseFile("equipment.txt")
-    println(spec)
-    println("------------")
-    spec.stateMachine.validate() match {
-      case None =>
-        println(Solidity.writeSpecification(spec))
-        println("----")
-        println(PlusCal.writeSpecification(spec))
-      case Some(err) => println(err)
-    }
-  }
-
-  test("Parsing auction state machine") {
-    val spec = parseFile("auction.txt")
-    println(spec)
-    println("---------")
-    spec.stateMachine.validate() match {
-      case None =>
-        println(Solidity.writeSpecification(spec))
-        println("----")
-        println(PlusCal.writeSpecification(spec))
-        println("----")
-        println(TLA.writeSpecificationToAux(spec))
-        println("----")
-        println(TLA.writeSpecificationToConfig(spec))
-      case Some(err) => println(err)
-    }
-  }
-
-  test("Parsing multi-sig wallet state machine") {
-    val spec = parseFile("simpleMultiSig.txt")
-    println(spec)
-    println("---------")
-    spec.stateMachine.validate() match {
-      case None =>
-        println(Solidity.writeSpecification(spec))
-        println("----")
-        println(PlusCal.writeSpecification(spec))
-        println("----")
-        println(TLA.writeSpecificationToAux(spec))
-        println("----")
-        println(TLA.writeSpecificationToConfig(spec))
-      case Some(err) => println(err)
-    }
-  }
-
-  test("Parsing majority vote multi-sig wallet") {
-    val spec = parseFile("majorityMultiSig.txt")
-    println(spec)
-    println("---------")
-    spec.stateMachine.validate() match {
-      case None =>
-        println(Solidity.writeSpecification(spec))
-        println("----")
-        println(PlusCal.writeSpecification(spec))
-        println("----")
-        println(TLA.writeSpecificationToAux(spec))
-        println("----")
-        println(TLA.writeSpecificationToConfig(spec))
-      case Some(err) => println(err)
-    }
+  private def writeFile(fileName: String, contents: String): Unit = {
+    val writer = new PrintWriter(s"${ParserSpec.OUTPUT_DIR}/$fileName", StandardCharsets.UTF_8)
+    writer.println(contents)
+    writer.close()
   }
 }
