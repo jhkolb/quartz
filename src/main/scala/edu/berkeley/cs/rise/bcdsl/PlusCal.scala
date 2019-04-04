@@ -85,7 +85,7 @@ object PlusCal {
           // We don't need an explicit variable to track this
           case IdentityLiteral(_) | AuthAny(_) => ()
           case AuthAll(_) =>
-            appendLine(builder, s"${writeApprovalVarName(trans, terms.head)})} = ${writeApprovalVarInit(trans, terms.head)};")
+            appendLine(builder, s"${writeApprovalVarName(trans, terms.head)} = ${writeApprovalVarInit(trans, terms.head)};")
         }
       }
     })
@@ -101,14 +101,14 @@ object PlusCal {
 
         case AuthAll(collectionName) =>
           val paramReprs = "sender |-> s" +: transition.parameters.getOrElse(Seq.empty[Variable]).map(p => s"${p.name} |-> ${p.name}")
-          builder.append(s"\\A s \\in $collectionName: ${writeApprovalVarName(transition, t)}$paramReprs")
+          builder.append(s"\\A s \\in $collectionName: ${writeApprovalVarName(transition, t)}[${paramReprs.mkString(", ")}]")
       }
 
       case AuthCombination(left, op, right) =>
         if (depth > 0) {
           builder.append("(")
         }
-        writeAuthClause(transition, left, depth + 1)
+        builder.append(writeAuthClause(transition, left, depth + 1))
         if (depth > 0) {
           builder.append(")")
         }
@@ -122,7 +122,7 @@ object PlusCal {
         if (depth > 0) {
           builder.append("(")
         }
-        writeAuthClause(transition, right, depth + 1)
+        builder.append(writeAuthClause(transition, right, depth + 1))
         if (depth > 0) {
           builder.append(")")
         }
@@ -156,7 +156,7 @@ object PlusCal {
           case Plus => builder.append(" + ")
           case Minus => builder.append(" - ")
           case Multiply => builder.append(" * ")
-          case Divide => builder.append(" / ")
+          case Divide => builder.append(" \\div ")
         }
 
         right match {
@@ -227,7 +227,7 @@ object PlusCal {
     }
 
     case SequenceAppend(sequence, element) =>
-      writeLine(s"Append(${writeExpression(sequence)}, ${writeExpression(element)});")
+      writeLine(s"${writeExpression(sequence)} := Append(${writeExpression(sequence)}, ${writeExpression(element)});")
 
     case SequenceClear(sequence) =>
       writeLine(s"${writeExpression(sequence)} := <<>>;")
@@ -289,7 +289,7 @@ object PlusCal {
             val paramsRepr = "sender |-> s" +: transition.parameters.getOrElse(Seq.empty[Variable]).
               map(p => s"${p.name} |-> ${p.name}")
             appendLine(builder, s"if ~(\\A s \\in $collectionName: " +
-              writeApprovalVarName(transition, subTerms.head) + paramsRepr + " {")
+              writeApprovalVarName(transition, subTerms.head) + s"[${paramsRepr.mkString(", ")}])" + " then")
             indentationLevel += 1
             appendLine(builder, "return;")
             indentationLevel -= 1
@@ -456,6 +456,7 @@ object PlusCal {
       appendLine(builder, s"$CURRENT_TIME_VAR = 0;")
       appendLine(builder, s"$CALL_DEPTH_VAR = 0;")
       appendLine(builder, s"$CONTRACT_BALANCE_VAR = 0;")
+      appendLine(builder, "__temporary = 0;")
       builder.append(writeAuthorizationFields(stateMachine))
 
       stateMachine.fields.foreach { field =>
