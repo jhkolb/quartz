@@ -100,7 +100,9 @@ object SpecificationParser extends JavaTokenParsers {
   def sequenceAddition: Parser[SequenceAppend] = "add" ~ expression ~ "to" ~ expression ^^
     { case "add" ~ element ~ "to" ~ set => SequenceAppend(set, element) }
 
-  def statement: Parser[Statement] = assignment | send | sendAndConsume | sequenceAddition
+  def sequenceClear: Parser[SequenceClear] = "clear" ~> expression ^^ SequenceClear
+
+  def statement: Parser[Statement] = assignment | send | sendAndConsume | sequenceAddition | sequenceClear
 
   def parameterList: Parser[Seq[Variable]] = "(" ~> rep1sep(variableDecl, ",") <~ ")"
 

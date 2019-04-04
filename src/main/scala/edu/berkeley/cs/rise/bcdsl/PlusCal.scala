@@ -228,6 +228,9 @@ object PlusCal {
 
     case SequenceAppend(sequence, element) =>
       writeLine(s"Append(${writeExpression(sequence)}, ${writeExpression(element)});")
+
+    case SequenceClear(sequence) =>
+      writeLine(s"${writeExpression(sequence)} := <<>>;")
   }
 
   private def nextLabel(): String = {

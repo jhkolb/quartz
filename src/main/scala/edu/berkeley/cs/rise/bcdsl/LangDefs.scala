@@ -222,3 +222,4 @@ sealed trait Statement
 case class Assignment(left: Assignable, right: Expression) extends Statement
 case class Send(destination: Expression, amount: Expression, source: Option[Assignable]) extends Statement
 case class SequenceAppend(sequence: Expression, element: Expression) extends Statement
+case class SequenceClear(sequence: Expression) extends Statement

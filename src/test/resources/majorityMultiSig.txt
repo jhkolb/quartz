@@ -28,5 +28,6 @@ contract MajorityMultiSig {
     sendDisbursement: open ->(recipient: Identity) open
     requires [ PendingDisbursements[recipient] > 0 && size(Approvals[recipient]) > size(Signers)/2 ] {
         sendAndConsume PendingDisbursements[recipient] to recipient
+        clear Approvals[recipient]
     }
 }
