@@ -254,7 +254,7 @@ object Solidity {
     transition.body.foreach(_.foreach(s => builder.append(writeStatement(s))))
 
     if (transition.origin.fold(false)(_ == transition.destination)) {
-      builder.append(writeClearAuthVars(transition))
+      builder.append(writeClearAuthTerms(transition))
     }
     indentationLevel -= 1
     appendLine(builder, "}")
@@ -358,7 +358,7 @@ object Solidity {
     builder.toString()
   }
 
-  private def writeClearAuthVars(transition: Transition): String = {
+  private def writeClearAuthTerms(transition: Transition): String = {
     val authTerms = transition.authorized.fold(Set.empty[AuthTerm])(_.flatten)
     if (authTerms.size == 1) {
       authTerms.head match {
@@ -374,7 +374,7 @@ object Solidity {
 
   private def writeClearAuthTerm(transition: Transition, term: AuthTerm): String = term match {
     case IdentityLiteral(_) | AuthAny(_) =>
-      writeLine(s"${writeApprovalVarName(transition, term)} = false;")
+      writeLine(s"${writeApprovalVarRef(transition, term)} = false;")
     case AuthAll(collectionName) =>
       val varName = writeApprovalVarRef(transition, term).dropRight(s"[${RESERVED_NAME_TRANSLATIONS("sender")}]".length)
       s"""

@@ -87,6 +87,10 @@ object PlusCal {
           case AuthAll(_) =>
             appendLine(builder, s"${writeApprovalVarName(trans, terms.head)} = ${writeApprovalVarInit(trans, terms.head)};")
         }
+      } else {
+        terms.foreach { term =>
+          appendLine(builder, s"${writeApprovalVarName(trans, term)} = ${writeApprovalVarInit(trans, term)};")
+        }
       }
     })
 
@@ -129,6 +133,30 @@ object PlusCal {
     }
 
     builder.toString()
+  }
+
+  private def writeClearAuthTerms(transition: Transition): String = {
+    val authTerms = transition.authorized.fold(Set.empty[AuthTerm])(_.flatten)
+    if (authTerms.size == 1) {
+      authTerms.head match {
+        case term @ AuthAll(_) => writeClearAuthTerm(transition, term)
+        case _ => ""
+      }
+    } else {
+      val builder = new StringBuilder()
+      authTerms.foreach(term => builder.append(writeClearAuthTerm(transition, term)))
+      builder.toString()
+    }
+  }
+
+  private def writeClearAuthTerm(transition: Transition, term: AuthTerm): String = term match {
+    case IdentityLiteral(_) | AuthAny(_) =>
+      writeLine(s"${writeApprovalVarRef(transition, term)} := FALSE;")
+    case AuthAll(collectionName) =>
+      val varName = writeApprovalVarName(transition, term)
+      val paramReprs = transition.parameters.fold(Seq.empty[String])(_.map(p => s"${p.name} |-> ${p.name}"))
+      val effectiveParamReprs = s"sender \\in $collectionName" +: paramReprs
+      writeLine(s"$varName[${effectiveParamReprs.mkString(", ")}] := FALSE;")
   }
 
   private def writeExpression(expression: Expression): String = {
@@ -338,6 +366,10 @@ object PlusCal {
       // Statements handle their own indentation
       builder.append(s"${writeStatement(statement)}")
     })
+
+    if (transition.origin.fold(false)(_ == transition.destination)) {
+      builder.append(writeClearAuthTerms(transition))
+    }
 
     appendLine(builder, "return;")
     indentationLevel -= 1
