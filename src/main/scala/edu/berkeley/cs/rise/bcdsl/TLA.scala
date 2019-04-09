@@ -27,7 +27,7 @@ object TLA {
   def writeSpecificationToAux(specification: Specification): String = specification match {
     case Specification(name, _, invariants) =>
       val builder = new StringBuilder()
-      builder.append("---- MODULE MC ----\n")
+      builder.append(s"---- MODULE ${specification.name}MC ----\n")
       builder.append(s"EXTENDS $name, TLC\n")
 
       MODEL_CONSTANTS.foreach { case (constName, constValue) =>

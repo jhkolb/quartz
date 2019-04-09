@@ -37,14 +37,15 @@ class ParserSpec extends FunSuite {
   test("Parsing all test files") {
     new File(ParserSpec.OUTPUT_DIR).mkdir()
     ParserSpec.TEST_FILES.foreach { fileName =>
-      val unextendedName = fileName.substring(0, fileName.indexOf('.'))
       val spec = parseFile(fileName)
-      writeFile(unextendedName + ".spec", spec.toString)
+      writeFile(spec.name + ".spec", spec.toString)
 
       spec.stateMachine.validate() match {
         case None =>
-          writeFile(unextendedName + ".sol", Solidity.writeSpecification(spec))
-          writeFile(unextendedName + ".tla", PlusCal.writeSpecification(spec))
+          writeFile(spec.name + ".sol", Solidity.writeSpecification(spec))
+          writeFile(spec.name + ".tla", PlusCal.writeSpecification(spec))
+          writeFile(spec.name + "MC.cfg", TLA.writeSpecificationToConfig(spec))
+          writeFile(spec.name + "MC.tla", TLA.writeSpecificationToAux(spec))
         case Some(err) =>
           println(s"Error in $fileName: $err")
       }

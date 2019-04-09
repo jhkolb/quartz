@@ -97,6 +97,38 @@ object PlusCal {
     builder.toString()
   }
 
+  private def getAuthorizationFieldNames(machine: StateMachine): Seq[String] = machine.transitions.flatMap { transition =>
+    transition.authorized.fold(Seq.empty[String]) { authClause =>
+      val terms = authClause.flatten
+      if (terms.size == 1) {
+        terms.head match {
+          case IdentityLiteral(_) | AuthAny(_) => Seq.empty[String]
+          case term@AuthAll(_) => Seq(writeApprovalVarName(transition, term))
+        }
+      } else {
+        terms.toSeq.map(writeApprovalVarName(transition, _))
+      }
+    }
+  }
+
+  private def writeStateStash(stateMachine: StateMachine): String = {
+    val builder = new StringBuilder()
+    val allVarNames = stateMachine.fields.map(_.name) ++ getAuthorizationFieldNames(stateMachine) ++
+      Seq(CONTRACT_BALANCE_VAR, CURRENT_STATE_VAR)
+    appendLine(builder, "__stateStash = [")
+    indentationLevel += 1
+    allVarNames.zipWithIndex.foreach { case (name, i) =>
+      if (i < allVarNames.length - 1) {
+        appendLine(builder, s"$name |-> $name,")
+      } else {
+        appendLine(builder, s"$name |-> $name")
+      }
+    }
+    indentationLevel -= 1
+    appendLine(builder, "];")
+    builder.toString()
+  }
+
   private def writeAuthClause(transition: Transition, term: AuthExpression, depth: Int = 0): String = {
     val builder = new StringBuilder()
     term match {
@@ -139,7 +171,7 @@ object PlusCal {
     val authTerms = transition.authorized.fold(Set.empty[AuthTerm])(_.flatten)
     if (authTerms.size == 1) {
       authTerms.head match {
-        case term @ AuthAll(_) => writeClearAuthTerm(transition, term)
+        case term@AuthAll(_) => writeClearAuthTerm(transition, term)
         case _ => ""
       }
     } else {
@@ -394,46 +426,30 @@ object PlusCal {
     indentationLevel -= 1
     appendLine(builder, "end with;")
     builder.append("MethodCall:\n")
-    if (transitions.length == 1) {
-      val t = transitions.head
-      t.parameters.foreach(params => {
+    appendLine(builder, "either")
+    indentationLevel += 1
+    transitions.foreach { transition =>
+      transition.parameters.foreach { params =>
         appendLine(builder, writeTransitionArgumentSelection(params))
         indentationLevel += 1
-      })
+      }
 
-      val paramsRepr = ("sender" +: t.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", ")
-      appendLine(builder, s"call ${t.name}($paramsRepr);")
-      if (t.parameters.isDefined) {
+      // Again, add "_arg" suffix to avoid name collisions in TLA+
+      val paramsRepr = ("sender" +: transition.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", ")
+      appendLine(builder, s"call ${transition.name}($paramsRepr);")
+      if (transition.parameters.isDefined) {
         indentationLevel -= 1
         appendLine(builder, "end with;")
       }
-    } else {
-      appendLine(builder, "either")
+
+      indentationLevel -= 1
+      appendLine(builder, "or")
       indentationLevel += 1
-      transitions.zipWithIndex.foreach { case (transition, idx) =>
-        transition.parameters.foreach { params =>
-          appendLine(builder, writeTransitionArgumentSelection(params))
-          indentationLevel += 1
-        }
-
-        // Again, add "_arg" suffix to avoid name collisions in TLA+
-        val paramsRepr = ("sender" +: transition.parameters.getOrElse(Seq.empty[Variable]).map(_.name + "_arg")).mkString(", ")
-        appendLine(builder, s"call ${transition.name}($paramsRepr);")
-        if (transition.parameters.isDefined) {
-          indentationLevel -= 1
-          appendLine(builder, "end with;")
-        }
-
-        indentationLevel -= 1
-        if (idx < transitions.length - 1) {
-          appendLine(builder, "or")
-          indentationLevel += 1
-        } else {
-          appendLine(builder, "end either;")
-        }
-      }
     }
 
+    appendLine(builder, "call throw();")
+    indentationLevel -= 1
+    appendLine(builder, "end either;")
     builder.append(nextLabel() + "\n")
     appendLine(builder, s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR - 1;")
     appendLine(builder, "return;")
@@ -459,6 +475,22 @@ object PlusCal {
     indentationLevel -= 1
     appendLine(builder, "end either;")
     builder.append(nextLabel() + "\n")
+    appendLine(builder, "return;")
+    indentationLevel -= 1
+    appendLine(builder, "end procedure;")
+    builder.toString()
+  }
+
+  private def writeThrowFunction(stateMachine: StateMachine): String = {
+    val builder = new StringBuilder()
+    appendLine(builder, "procedure throw() begin Throw:")
+    indentationLevel += 1
+    val contractVarNames = stateMachine.fields.map(_.name) ++
+      getAuthorizationFieldNames(stateMachine) ++ Seq("balance", "__currentState")
+    contractVarNames.foreach { name =>
+      appendLine(builder, name + " := __stateStash[\"" + name + "\"];")
+    }
+    appendLine(builder, s"$CALL_DEPTH_VAR := 0;")
     appendLine(builder, "return;")
     indentationLevel -= 1
     appendLine(builder, "end procedure;")
@@ -494,6 +526,8 @@ object PlusCal {
       stateMachine.fields.foreach { field =>
         appendLine(builder, s"${writeField(field)};")
       }
+
+      builder.append(writeStateStash(stateMachine))
       builder.append("\n")
 
       val initialTransition = stateMachine.transitions.filter(_.origin.isEmpty).head
@@ -504,6 +538,8 @@ object PlusCal {
       builder.append(writeInvocationLoop(standardTransitions))
       builder.append("\n")
       builder.append(writeSendFunction())
+      builder.append("\n")
+      builder.append(writeThrowFunction(stateMachine))
       builder.append("\n")
 
       // Invoke procedure corresponding to initial transition
