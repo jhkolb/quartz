@@ -506,12 +506,13 @@ object PlusCal {
       appendLine(builder, "EXTENDS Integers, Sequences, TLC")
 
       val stateNames = stateMachine.states.map(_.toUpperCase)
-      val identityNames = stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase) :+ "ZERO_IDENT"
       appendLine(builder, s"CONSTANTS ${BUILT_IN_CONSTANTS.mkString(", ")}")
       appendLine(builder, s"CONSTANTS ${stateNames.mkString(", ")}")
-      appendLine(builder, s"CONSTANTS ${identityNames.mkString(", ")}")
       appendLine(builder, s"STATES == { ${stateMachine.states.map(_.toUpperCase).mkString(", ")} }")
-      appendLine(builder, s"IDENTITIES == { ${identityNames.mkString(", ")} }")
+
+      val allIdentities = "ZERO_IDENT" +: 1.to(TLA.NUM_IDENTITIES).map(n => s"__ident$n")
+      appendLine(builder, s"CONSTANTS ${allIdentities.mkString(", ")}")
+      appendLine(builder, s"IDENTITIES == { ${allIdentities.mkString(", ")} }")
       builder.append("\n")
 
       appendLine(builder, s"(* --fair algorithm $name")

@@ -22,6 +22,8 @@ object TLA {
     "now" -> "__currentTime",
   )
 
+  private[bcdsl] val NUM_IDENTITIES = 3
+
   private def mangleName(name: String): String = "__" + name.toLowerCase
 
   def writeSpecificationToAux(specification: Specification): String = specification match {
@@ -58,7 +60,9 @@ object TLA {
       stateMachine.states.map(_.toUpperCase).foreach(name => builder.append(s"CONSTANT $name = $name\n"))
 
       // Treat identities as symbolic constants, add in zero identity
-      stateMachine.fields.filter(_.ty == Identity).map(_.name.toUpperCase()).foreach(id => builder.append(s"CONSTANT $id = $id\n"))
+      1.to(NUM_IDENTITIES).foreach { i =>
+        builder.append(s"CONSTANT __ident$i = __ident$i\n")
+      }
       builder.append(s"CONSTANT $ZERO_IDENTITY_NAME = $ZERO_IDENTITY_NAME\n")
 
       // Load in constants from auxiliary file
