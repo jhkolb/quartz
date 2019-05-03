@@ -299,7 +299,7 @@ object PlusCal {
     s"L$currentLabelIndex:"
   }
 
-  private def writeTransition(transition: Transition): String = {
+  private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
     val builder = new StringBuilder()
     val effectiveParameters = Variable("sender", Identity) +: transition.parameters.getOrElse(Seq.empty[Variable])
     val paramsRepr = effectiveParameters.map(_.name).mkString(", ")
@@ -315,10 +315,36 @@ object PlusCal {
       builder.append(nextLabel() + "\n")
     }
 
+    // Interpose automatic transitions, if any
+    val outgoingAutoTransitions = transition.origin.flatMap(autoTransitions.get)
+    outgoingAutoTransitions.foreach(_.filter(_ != transition).zipWithIndex.foreach { case (t, idx) =>
+      val g = t.guard.get // Auto transitions must have a guard
+      if (idx == 0) {
+        appendLine(builder, s"if ${writeExpression(g)} then")
+      } else {
+        appendLine(builder, s"else if ${writeExpression(g)} then")
+      }
+      indentationLevel += 1
+
+      if (t.destination != t.origin.get) {
+        appendLine(builder, s"$CURRENT_STATE_VAR := ${t.destination.toUpperCase};")
+      }
+      t.body.foreach(_.foreach(s => builder.append(writeStatement(s))))
+      appendLine(builder, "return;")
+      indentationLevel -= 1
+      appendLine(builder, "end if;")
+      builder.append(nextLabel() + "\n")
+    })
+
     transition.guard.foreach { g =>
       appendLine(builder, s"if ~(${writeExpression(g)}) then")
       indentationLevel += 1
-      appendLine(builder, "return;")
+      if (transition.origin.isEmpty) {
+        // Contract would throw exception if initial transition guard not satisfied
+        appendLine(builder, "goto Done;")
+      } else {
+        appendLine(builder, "return;")
+      }
       indentationLevel -= 1
       appendLine(builder, "end if;")
       builder.append(nextLabel() + "\n")
@@ -394,9 +420,13 @@ object PlusCal {
     if (transition.origin.getOrElse("") != transition.destination) {
       appendLine(builder, s"$CURRENT_STATE_VAR := ${transition.destination.toUpperCase};")
     }
+    // Add incoming funds to token balance
+    if (transition.parameters.getOrElse(Seq.empty[Variable]).contains(Variable("tokens", Int))) {
+      appendLine(builder, "balance := balance + tokens;")
+    }
     transition.body.foreach(_.foreach { statement =>
       // Statements handle their own indentation
-      builder.append(s"${writeStatement(statement)}")
+      builder.append(writeStatement(statement))
     })
 
     if (transition.origin.fold(false)(_ == transition.destination)) {
@@ -491,7 +521,7 @@ object PlusCal {
       appendLine(builder, name + " := __stateStash[\"" + name + "\"];")
     }
     appendLine(builder, s"$CALL_DEPTH_VAR := 0;")
-    appendLine(builder, "return;")
+    appendLine(builder, "goto Loop;")
     indentationLevel -= 1
     appendLine(builder, "end procedure;")
     builder.toString()
@@ -533,8 +563,12 @@ object PlusCal {
 
       val initialTransition = stateMachine.transitions.filter(_.origin.isEmpty).head
       val standardTransitions = stateMachine.transitions.filter(_.origin.isDefined)
-      builder.append(writeTransition(initialTransition))
-      standardTransitions.foreach(t => builder.append(writeTransition(t)))
+      val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
+        val originState = transition.origin.get
+        autoTrans + (originState -> (autoTrans.getOrElse(originState, Seq.empty[Transition]) :+ transition))
+      }
+      builder.append(writeTransition(initialTransition, autoTransitions))
+      standardTransitions.foreach(t => builder.append(writeTransition(t, autoTransitions)))
 
       builder.append(writeInvocationLoop(standardTransitions))
       builder.append("\n")
