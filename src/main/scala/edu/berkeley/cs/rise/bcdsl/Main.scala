@@ -12,8 +12,9 @@ object Main {
       System.exit(-1)
     }
 
-    val specificationInput = Source.fromFile(configuration.get.inputFile).mkString
-    val parseResult = SpecificationParser.parseAll(SpecificationParser.specification, specificationInput)
+    val specificationInput = Source.fromFile(configuration.get.inputFile)
+    val parseResult = SpecificationParser.parseAll(SpecificationParser.specification, specificationInput.mkString)
+    specificationInput.close()
     parseResult match {
       case SpecificationParser.Failure(msg, remaining) =>
         val nextInput = remaining.source.toString.substring(remaining.offset).takeWhile(_ != '\n')

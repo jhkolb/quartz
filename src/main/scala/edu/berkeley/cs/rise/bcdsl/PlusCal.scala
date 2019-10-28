@@ -8,6 +8,7 @@ object PlusCal {
   private[bcdsl] val CALL_DEPTH_VAR = "__contractCallDepth"
   private[bcdsl] val CURRENT_TIME_VAR = "__currentTime"
   private val CURRENT_STATE_VAR = "__currentState"
+  private val STATE_STASH_VAR = "__stateStash"
 
   private var labelCounter = 0
   private var indentationLevel = 0
@@ -111,19 +112,19 @@ object PlusCal {
     }
   }
 
+  private def getStashedVariables(stateMachine: StateMachine): Seq[String] =
+    stateMachine.fields.map(_.name) ++ getAuthorizationFieldNames(stateMachine) ++
+      Seq(CONTRACT_BALANCE_VAR, CURRENT_STATE_VAR)
+
   private def writeStateStash(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
-    val allVarNames = stateMachine.fields.map(_.name) ++ getAuthorizationFieldNames(stateMachine) ++
-      Seq(CONTRACT_BALANCE_VAR, CURRENT_STATE_VAR)
-    appendLine(builder, "__stateStash = [")
+    appendLine(builder, s"$STATE_STASH_VAR = [")
     indentationLevel += 1
-    allVarNames.zipWithIndex.foreach { case (name, i) =>
-      if (i < allVarNames.length - 1) {
-        appendLine(builder, s"$name |-> $name,")
-      } else {
-        appendLine(builder, s"$name |-> $name")
-      }
+    val allVarNames = getStashedVariables(stateMachine)
+    allVarNames.dropRight(1).foreach { name =>
+      appendLine(builder, s"$name |-> $name,")
     }
+    appendLine(builder, s"${allVarNames.last} |-> ${allVarNames.last}")
     indentationLevel -= 1
     appendLine(builder, "];")
     builder.toString()
@@ -445,10 +446,26 @@ object PlusCal {
     "with " + parameters.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
 
   // TODO code cleanup
-  private def writeInvocationLoop(transitions: Seq[Transition]): String = {
+  private def writeInvocationLoop(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
     appendLine(builder, "procedure invokeContract(sender) begin InvokeContract:")
     indentationLevel += 1
+
+    // If at root of call tree, stash contract's state to be restored  if exception is thrown
+    appendLine(builder, s"if $CALL_DEPTH_VAR = 0 then")
+    indentationLevel += 1
+    appendLine(builder, s"$STATE_STASH_VAR := [")
+    indentationLevel += 1
+    val stashedVarNames = getStashedVariables(stateMachine)
+    stashedVarNames.dropRight(1).foreach { varName =>
+      appendLine(builder, s"$varName |-> $varName,")
+    }
+    appendLine(builder, s"${stashedVarNames.last} |-> ${stashedVarNames.last}")
+    indentationLevel -= 1
+    appendLine(builder, "];")
+    indentationLevel -= 1
+    appendLine(builder, "end if;")
+
     appendLine(builder, s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR + 1;")
     appendLine(builder, "with __timeDelta \\in 1..MAX_TIMESTEP do")
     indentationLevel += 1
@@ -458,7 +475,8 @@ object PlusCal {
     builder.append("MethodCall:\n")
     appendLine(builder, "either")
     indentationLevel += 1
-    transitions.foreach { transition =>
+    val nonInitialTransitions = stateMachine.transitions.filter(_.origin.isDefined)
+    nonInitialTransitions.foreach { transition =>
       transition.parameters.foreach { params =>
         appendLine(builder, writeTransitionArgumentSelection(params))
         indentationLevel += 1
@@ -515,10 +533,8 @@ object PlusCal {
     val builder = new StringBuilder()
     appendLine(builder, "procedure throw() begin Throw:")
     indentationLevel += 1
-    val contractVarNames = stateMachine.fields.map(_.name) ++
-      getAuthorizationFieldNames(stateMachine) ++ Seq("balance", "__currentState")
-    contractVarNames.foreach { name =>
-      appendLine(builder, name + " := __stateStash[\"" + name + "\"];")
+    getStashedVariables(stateMachine).foreach { name =>
+      appendLine(builder, name + " := " + STATE_STASH_VAR + "[\"" + name + "\"];")
     }
     appendLine(builder, s"$CALL_DEPTH_VAR := 0;")
     appendLine(builder, "goto Loop;")
@@ -570,7 +586,7 @@ object PlusCal {
       builder.append(writeTransition(initialTransition, autoTransitions))
       standardTransitions.foreach(t => builder.append(writeTransition(t, autoTransitions)))
 
-      builder.append(writeInvocationLoop(standardTransitions))
+      builder.append(writeInvocationLoop(stateMachine))
       builder.append("\n")
       builder.append(writeSendFunction())
       builder.append("\n")
