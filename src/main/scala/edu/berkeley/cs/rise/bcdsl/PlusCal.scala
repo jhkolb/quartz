@@ -537,7 +537,7 @@ object PlusCal {
       appendLine(builder, name + " := " + STATE_STASH_VAR + "[\"" + name + "\"];")
     }
     appendLine(builder, s"$CALL_DEPTH_VAR := 0;")
-    appendLine(builder, "goto Loop;")
+    appendLine(builder, "return;")
     indentationLevel -= 1
     appendLine(builder, "end procedure;")
     builder.toString()

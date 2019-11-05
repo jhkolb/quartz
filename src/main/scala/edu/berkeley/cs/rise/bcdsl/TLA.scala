@@ -1,5 +1,11 @@
 package edu.berkeley.cs.rise.bcdsl
 
+import java.io.File
+import java.nio.file.Files
+
+import scala.io.Source
+import scala.sys.process._
+
 object TLA {
   private val MODEL_CONSTANTS: Map[String, String] = Map(elems =
     "MAX_TIMESTEP" -> "5",
@@ -25,6 +31,23 @@ object TLA {
   private[bcdsl] val NUM_IDENTITIES = 3
 
   private def mangleName(name: String): String = "__" + name.toLowerCase
+
+  def translatePlusCal(moduleName: String, plusCal: String): String = {
+    val tempDir = Files.createTempDirectory("tlaGen")
+    val tempTlaFile = new File(tempDir.toString, s"$moduleName.tla")
+    Utils.writeStringToFile(tempTlaFile, plusCal)
+
+    // '!!' Runs the specified command and retrieves string output
+    val translationOutput = s"pcal -nocfg ${tempTlaFile.getAbsolutePath}".!!
+    if (!translationOutput.endsWith(s"New file ${tempTlaFile.getAbsolutePath} written.\n")) {
+      throw new RuntimeException(s"PlusCal translator failed: $translationOutput")
+    }
+
+    val tlaSource = Source.fromFile(tempTlaFile)
+    val translation = tlaSource.mkString
+    tlaSource.close()
+    translation
+  }
 
   def writeSpecificationToAux(specification: Specification): String = specification match {
     case Specification(name, _, invariants) =>
@@ -72,6 +95,20 @@ object TLA {
       MODEL_CONSTRAINTS.indices.foreach(i => builder.append(s"CONSTRAINT __constraint_$i\n"))
 
       builder.toString()
+  }
+
+  // Use some ugly regex replacing for this
+  // Scala's regex engine requires some additional options to make this work
+  // (?m) enables multi-line mode (so ^ and $ match on lines, not whole string)
+  // (?s) enables the dot character to match on newlines as well
+  def modifyGeneratedTLA(original: String): String = {
+    original.
+      // Inside "Throw" procedure, don't return normally. Jump back to main loop
+      replaceFirst("(?ms)(^Throw == /\\\\ pc = \"Throw\".*?)(pc' = Head\\(stack\\)\\.pc)",
+        "$1pc' = \"Loop\"").
+      // Also, discard all of the call sequence so far
+      replaceFirst("(?ms)(^Throw ==.*?/\\\\ pc' = \"Loop\"\\s+/\\\\ )(stack' = Tail\\(stack\\))",
+        "$1stack' = <<>>")
   }
 
   private def writeLTLProperty(property: LTLProperty): String = property match {
@@ -163,5 +200,3 @@ object TLA {
     builder.toString()
   }
 }
-
-

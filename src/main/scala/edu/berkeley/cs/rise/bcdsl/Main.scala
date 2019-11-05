@@ -1,7 +1,5 @@
 package edu.berkeley.cs.rise.bcdsl
 
-import java.io._
-
 import scala.io.Source
 
 object Main {
@@ -32,25 +30,17 @@ object Main {
         }
 
         if (configuration.get.toSolidity) {
-          writeStringToFile(s"${specification.name}.sol", Solidity.writeSpecification(specification))
+          Utils.writeStringToFile(s"${specification.name}.sol", Solidity.writeSpecification(specification))
         }
 
         if (configuration.get.toTLA) {
-          writeStringToFile(s"${specification.name}.tla", PlusCal.writeSpecification(specification))
-          writeStringToFile("MC.tla", TLA.writeSpecificationToAux(specification))
-          writeStringToFile("MC.cfg", TLA.writeSpecificationToConfig(specification))
-        }
-    }
-  }
+          val generatedTla = TLA.translatePlusCal(specification.name, PlusCal.writeSpecification(specification))
+          val doctoredTla = TLA.modifyGeneratedTLA(generatedTla)
 
-  private def writeStringToFile(fileName: String, body: String): Unit = {
-    val writer = new PrintWriter(fileName, "UTF-8")
-    try {
-      writer.print(body)
-    } catch {
-      case e: IOException => println(s"Failed to write Solidity file: ${e.getMessage}")
-    } finally {
-      writer.close()
+          Utils.writeStringToFile(s"${specification.name}.tla", doctoredTla)
+          Utils.writeStringToFile("MC.tla", TLA.writeSpecificationToAux(specification))
+          Utils.writeStringToFile("MC.cfg", TLA.writeSpecificationToConfig(specification))
+        }
     }
   }
 }

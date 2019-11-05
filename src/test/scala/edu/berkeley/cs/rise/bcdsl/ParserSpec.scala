@@ -42,10 +42,15 @@ class ParserSpec extends FunSuite {
 
       spec.stateMachine.validate() match {
         case None =>
+          val plusCal = PlusCal.writeSpecification(spec)
+          val generatedTla = TLA.translatePlusCal(spec.name, plusCal)
+
+          writeFile(s"${spec.name}.tla", TLA.modifyGeneratedTLA(generatedTla))
+          writeFile(s"${spec.name}MC.cfg", TLA.writeSpecificationToAux(spec))
+          writeFile(s"${spec.name}MC.tla", TLA.writeSpecificationToAux(spec))
+
           writeFile(spec.name + ".sol", Solidity.writeSpecification(spec))
-          writeFile(spec.name + ".tla", PlusCal.writeSpecification(spec))
-          writeFile(spec.name + "MC.cfg", TLA.writeSpecificationToConfig(spec))
-          writeFile(spec.name + "MC.tla", TLA.writeSpecificationToAux(spec))
+
         case Some(err) =>
           println(s"Error in $fileName: $err")
       }
