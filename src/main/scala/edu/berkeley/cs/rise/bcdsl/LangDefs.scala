@@ -54,10 +54,10 @@ case class BoolConst(value: Boolean) extends Expression {
   override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(Bool)
 }
 
-case class MappingRef(mapName: String, key: Expression) extends Assignable {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = context.get(mapName) match {
-    case None => Left(s"Undefined field $mapName")
-    case Some(Mapping(keyType,valueType)) => key.getType(context) match {
+case class MappingRef(map: Expression, key: Expression) extends Assignable {
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = map.getType(context) match {
+    case Left(msg) => Left(s"Invalid mapping type: $msg")
+    case Right(Mapping(keyType, valueType)) => key.getType(context) match {
       case Left(err) => Left(s"Type error in map key expression: $err")
       case Right(ty) => if (keyType == ty) {
         Right(valueType)
@@ -65,7 +65,7 @@ case class MappingRef(mapName: String, key: Expression) extends Assignable {
         Left(s"Expected map key of type $keyType but found expression of type $ty")
       }
     }
-    case Some(ty) => Left(s"Cannot perform key lookup on non-map type $ty")
+    case Right(ty) => Left(s"Cannot perform key lookup on non-map type $ty")
   }
 }
 

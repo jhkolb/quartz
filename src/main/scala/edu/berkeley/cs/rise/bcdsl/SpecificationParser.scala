@@ -20,7 +20,12 @@ object SpecificationParser extends JavaTokenParsers {
 
   def variableDecl: Parser[Variable] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Variable(name, ty) }
 
-  def mappingRef: Parser[MappingRef] = ident ~ "[" ~ logicalExpression <~ "]" ^^ { case name ~ "[" ~ key => MappingRef(name, key) }
+  // TODO this could probably be cleaner...
+  // Assumes that any mappingRef starts with an identifier
+  def mappingRef: Parser[MappingRef] = ident ~ rep1("[" ~> logicalExpression <~ "]") ^^ {
+    case  root ~ (keyExpr::keyExprs) => keyExprs.foldLeft(MappingRef(VarRef(root), keyExpr)){ (ref, ke) => MappingRef(ref, ke) }
+    case _ ~ Nil => throw new IllegalStateException("rep1 combinator in 'mappingRef' yielded empty list")
+  }
 
   def fieldList: Parser[Seq[Variable]] = "data" ~ "{" ~> rep(variableDecl) <~ "}"
 

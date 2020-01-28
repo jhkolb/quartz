@@ -196,7 +196,7 @@ object PlusCal {
     val builder = new StringBuilder()
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
-      case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
+      case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b.toString.toUpperCase)
@@ -270,7 +270,7 @@ object PlusCal {
 
   private def writeAssignable(assignable: Assignable): String = assignable match {
     case VarRef(name) => name
-    case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
+    case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
   }
 
   private def writeStatement(statement: Statement): String = statement match {

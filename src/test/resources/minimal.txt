@@ -13,7 +13,7 @@ contract Minimal {
 
     run: configured -> running
     authorized [ zz ]
-    requires [ x < 4 && (z < 70 || y > 91) ] {}
+    requires [ x < 4 && (z < 70 || y > 91) && a[b][c] == 0 ] {}
 
     stop: running -> stopped
     authorized [ admin ]

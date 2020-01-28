@@ -5,6 +5,7 @@ object Solidity {
 
   private val INDENTATION_STR: String = "    "
   private val CURRENT_STATE_VAR: String = "__currentState"
+  private val PARAM_HASH_PLACEHOLDER = "0"
   private val RESERVED_NAME_TRANSLATIONS: Map[String, String] = Map[String, String](
     "balance" -> "balance",
     "now" -> "now",
@@ -40,7 +41,7 @@ object Solidity {
     val builder = new StringBuilder()
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
-      case MappingRef(mapName, key) => builder.append(s"$mapName[${writeExpression(key)}]")
+      case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b)
@@ -117,7 +118,7 @@ object Solidity {
 
   private def writeAssignable(assignable: Assignable): String = assignable match {
     case VarRef(name) => name
-    case MappingRef(mapName, key) => s"$mapName[${writeExpression(key)}]"
+    case MappingRef(mapName, key) => s"${writeExpression(mapName)}[${writeExpression(key)}]"
   }
 
   private def writeStatement(statement: Statement): String = statement match {
@@ -144,7 +145,7 @@ object Solidity {
       writeLine(s"${writeExpression(sequence)}.push(${writeExpression(element)});")
 
     case SequenceClear(sequence) =>
-      writeLine(s"${writeExpression(sequence)}.length = 0;")
+      writeLine(s"delete ${writeExpression(sequence)};")
   }
 
   private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
@@ -202,20 +203,26 @@ object Solidity {
     transition.authorized.foreach { authTerm =>
       val subTerms = authTerm.flatten
       if (subTerms.size == 1) {
+        // Authorization clause is just a single term, which simplifies things
+        // No need for persistent bookkeeping except for an "all" term
         subTerms.head match {
           case IdentityLiteral(identity) =>
-            appendLine(builder, s"require(${RESERVED_NAME_TRANSLATIONS("sender")} == $identity);")
+            appendLine(builder, s"if (${RESERVED_NAME_TRANSLATIONS("sender")} != $identity) {")
           case AuthAny(collectionName) =>
-            appendLine(builder, s"require(sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")}));")
+            appendLine(builder, s"if (!sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")})) {")
           case AuthAll(collectionName) =>
             appendLine(builder, s"${writeApprovalVarRef(transition, subTerms.head)} = true;")
             val varName = writeApprovalVarName(transition, subTerms.head)
             transition.parameters.fold {
-              appendLine(builder, s"require(allApproved($collectionName, $varName, ));")
+              appendLine(builder, s"if (!allApproved($collectionName, $varName, $PARAM_HASH_PLACEHOLDER)) {")
             } { params =>
-              appendLine(builder, s"require(allApproved($collectionName, $varName, ${writeParamHash(params)}));")
+              appendLine(builder, s"if (!allApproved($collectionName, $varName, ${writeParamHash(params)})) {")
             }
         }
+        indentationLevel += 1
+        appendLine(builder, "return;")
+        indentationLevel -= 1
+        appendLine(builder, "}")
       } else {
         subTerms.zipWithIndex.foreach { case (subTerm, i) =>
           val conditional = if (i == 0) "if" else "else if"
@@ -242,7 +249,11 @@ object Solidity {
               appendLine(builder, "}")
           }
         }
-        appendLine(builder, s"require(${writeAuthClause(transition, authTerm)});")
+        appendLine(builder, s"if (!(${writeAuthClause(transition, authTerm)})) {")
+        indentationLevel += 1
+        appendLine(builder, "return;")
+        indentationLevel -= 1
+        appendLine(builder, "}")
       }
     }
 
@@ -491,11 +502,14 @@ object Solidity {
     case LogicalOperation(left, In | NotIn, _) => Set(left.determinedType)
     case LogicalOperation(left, _, right) => extractMembershipTypes(left) ++ extractMembershipTypes(right)
     case ArithmeticOperation(left, _, right) => extractMembershipTypes(left) ++ extractMembershipTypes(right)
-    case MappingRef(_, key) => extractMembershipTypes(key)
+    case MappingRef(map, key) => extractMembershipTypes(map) ++ extractMembershipTypes(key)
     case SequenceSize(sequence) => extractMembershipTypes(sequence)
     case _ => Set.empty[DataType]
   }
 
+  // Checks for any occurrences of the "in" or "not in" operators and the
+  // element type of each sequence involved. This is used to auto-generate
+  // type-specific helper functions to perform the membership check.
   private def extractAllMembershipTypes(stateMachine: StateMachine): Set[DataType] = {
     val expressionChecks = stateMachine.flattenExpressions.foldLeft(Set.empty[DataType]) { (current, exp) =>
       current.union(extractMembershipTypes(exp))
@@ -516,7 +530,7 @@ object Solidity {
   }
 
   private def extractVarNames(expression: Expression): Set[String] = expression match {
-    case MappingRef(mapName, key) => extractVarNames(key) + mapName
+    case MappingRef(map, key) => extractVarNames(map) ++ extractVarNames(key)
     case VarRef(name) => Set(name)
     case LogicalOperation(left, _, right) => extractVarNames(left) ++ extractVarNames(right)
     case ArithmeticOperation(left, _, right) => extractVarNames(left) ++ extractVarNames(right)
