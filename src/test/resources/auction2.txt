@@ -1,4 +1,4 @@
-contract Auction {
+contract Auction2 {
     data {
       Seller: Identity
       HighestBidder: Identity

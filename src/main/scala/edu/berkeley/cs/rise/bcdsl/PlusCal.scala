@@ -197,6 +197,7 @@ object PlusCal {
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
+      case ScopedParamRef(transition, parameter) => builder.append(transition + "_" + parameter)
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b.toString.toUpperCase)
@@ -271,6 +272,7 @@ object PlusCal {
   private def writeAssignable(assignable: Assignable): String = assignable match {
     case VarRef(name) => name
     case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
+    case ScopedParamRef(transition, parameter) => transition + "_" + parameter
   }
 
   private def writeStatement(statement: Statement): String = statement match {
@@ -445,6 +447,52 @@ object PlusCal {
   // Add "_arg" suffix to avoid name collisions in the TLA+ that gets produced from this PlusCal
     "with " + parameters.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
 
+  // Systematically rename each transition's parameter to avoid collisions and facilitate expressive LTL
+  // Also means we may need to modify statements in the transition's body
+  // Each parameter name now includes the transition's name as a prefix
+  private def mangleTransition(transition: Transition, fieldNames: Set[String]): Transition = {
+    val newParameters = transition.parameters.map(_.map(p => Variable(s"${transition.name}_${p.name}", p.ty)))
+    val newGuard = transition.guard.map(mangleExpression(_, transition.name, fieldNames))
+    val newBody = transition.body.map(_.map(mangleStatement(_, transition.name, fieldNames)))
+
+    Transition(transition.name, transition.origin, transition.destination, newParameters,
+                transition.authorized, transition.auto, newGuard, newBody)
+  }
+
+  // Helper method for mangleTransition
+  private def mangleStatement(s: Statement, transName: String, fieldNames: Set[String]): Statement = s match {
+    case Assignment(left, right) =>
+      Assignment(mangleAssignable(left, transName, fieldNames), mangleExpression(right, transName, fieldNames))
+    case Send(destination, amount, source) =>
+      Send(mangleExpression(destination, transName, fieldNames), mangleExpression(amount, transName, fieldNames),
+           source.map(mangleAssignable(_, transName, fieldNames)))
+    case SequenceAppend(sequence, element) =>
+      SequenceAppend(mangleExpression(sequence, transName, fieldNames), mangleExpression(element, transName, fieldNames))
+    case SequenceClear(sequence) => SequenceClear(mangleExpression(sequence, transName, fieldNames))
+  }
+
+  // Helper method for mangleTransition
+  private def mangleExpression(e: Expression, transName: String, fieldNames: Set[String]): Expression = e match {
+    case ArithmeticOperation(left, operator, right) =>
+      ArithmeticOperation(mangleExpression(left, transName, fieldNames), operator, mangleExpression(right, transName, fieldNames))
+    case LogicalOperation(left, operator, right) =>
+      LogicalOperation(mangleExpression(left, transName, fieldNames), operator, mangleExpression(right, transName, fieldNames))
+    case SequenceSize(sequence) => SequenceSize(mangleExpression(sequence,transName, fieldNames))
+    case a: Assignable => mangleAssignable(a, transName, fieldNames)
+    case _ => e
+  }
+
+  private def mangleAssignable(a: Assignable, transName: String, fieldNames: Set[String]): Assignable = a match {
+    case MappingRef(map, key) =>
+      MappingRef(mangleExpression(map, transName, fieldNames), mangleExpression(key, transName, fieldNames))
+    case ScopedParamRef(_,_) => throw new IllegalArgumentException("Found ScopedParamRef in transition body")
+    case VarRef(name) => if ((fieldNames contains name) || (RESERVED_NAME_TRANSLATIONS contains name)) {
+      VarRef(name)
+    } else {
+      VarRef(transName + "_" + name)
+    }
+  }
+
   // TODO code cleanup
   private def writeInvocationLoop(stateMachine: StateMachine): String = {
     val builder = new StringBuilder()
@@ -544,7 +592,8 @@ object PlusCal {
   }
 
   def writeSpecification(specification: Specification): String = specification match {
-    case Specification(name, stateMachine, _) =>
+    case Specification(name, StateMachine(fields, transitions), _) =>
+      val stateMachine = StateMachine(fields, transitions.map(mangleTransition(_, fields.map(_.name).toSet)))
       val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
 
       val builder = new StringBuilder()

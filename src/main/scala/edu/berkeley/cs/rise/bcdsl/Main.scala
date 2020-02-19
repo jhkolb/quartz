@@ -24,7 +24,7 @@ object Main {
         System.exit(-1)
 
       case SpecificationParser.Success(specification, _) =>
-        specification.stateMachine.validate().foreach { errMsg =>
+        specification.validate().foreach { errMsg =>
           println(errMsg)
           System.exit(-1)
         }

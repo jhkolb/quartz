@@ -37,10 +37,12 @@ object SpecificationParser extends JavaTokenParsers {
     "days" ^^^ Day |
     wholeNumber ^^ { s => IntConst(s.toInt) } |
     stringLiteral ^^ { s => StringLiteral(stripQuotes(s)) } |
-    mappingRef |
-    ident ^^ VarRef
+    assignable
 
-  def assignable: Parser[Assignable] = mappingRef | ident ^^ VarRef
+  def scopedParamRef: Parser[ScopedParamRef] = ident ~ "." ~ ident ^^
+    { case transition ~ "." ~ parameter => ScopedParamRef(transition, parameter) }
+
+  def assignable: Parser[Assignable] = mappingRef | scopedParamRef | ident ^^ VarRef
 
   def multDiv: Parser[ArithmeticOperator] = "*" ^^^ Multiply | "/" ^^^ Divide
 

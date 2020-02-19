@@ -42,6 +42,18 @@ case class VarRef(name: String) extends Assignable {
   }
 }
 
+// This can only be used within LTL properties
+// This is enforced by type checking - scoped names only belong to context within LTL properties
+case class ScopedParamRef(transition: String, parameter: String) extends Assignable {
+  override def determineType(context: Map[String, DataType]): Either[String, DataType] = {
+    val scopedName = s"$transition.$parameter"
+    context.get(scopedName) match {
+      case None => Left(s"Undefined transition parameter $scopedName")
+      case Some(ty) => Right(ty)
+    }
+  }
+}
+
 case class IntConst(value: Int) extends Expression {
   override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(Int)
 }

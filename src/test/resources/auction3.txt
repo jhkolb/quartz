@@ -1,4 +1,4 @@
-contract Auction {
+contract Auction3 {
     data {
       Seller: Identity
       HighestBidder: Identity
@@ -32,4 +32,5 @@ contract Auction {
 properties {
     [](balance >= 0)
     [](<>(closed))
+    [](submitBid.tokens >= 0)
 }

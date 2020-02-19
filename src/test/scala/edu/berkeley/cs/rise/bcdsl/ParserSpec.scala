@@ -12,6 +12,8 @@ object ParserSpec {
     "minimal.txt",
     "equipment.txt",
     "auction.txt",
+    "auction2.txt",
+    "auction3.txt",
     "simpleMultiSig.txt",
     "majorityMultiSig.txt",
     "strictMultiSig.txt",
@@ -40,14 +42,14 @@ class ParserSpec extends FunSuite {
       val spec = parseFile(fileName)
       writeFile(spec.name + ".spec", spec.toString)
 
-      spec.stateMachine.validate() match {
+      spec.validate() match {
         case None =>
           val plusCal = PlusCal.writeSpecification(spec)
           val generatedTla = TLA.translatePlusCal(spec.name, plusCal)
 
           writeFile(s"${spec.name}.tla", TLA.modifyGeneratedTLA(generatedTla))
-          writeFile(s"${spec.name}MC.cfg", TLA.writeSpecificationToAux(spec))
           writeFile(s"${spec.name}MC.tla", TLA.writeSpecificationToAux(spec))
+          writeFile(s"${spec.name}MC.cfg", TLA.writeSpecificationToConfig(spec))
 
           writeFile(spec.name + ".sol", Solidity.writeSpecification(spec))
 

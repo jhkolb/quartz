@@ -112,7 +112,7 @@ object TLA {
   }
 
   private def writeLTLProperty(property: LTLProperty): String = property match {
-    case LTLProperty(op, Left(prop)) => s"${writeLTLOperator(op)}(${writeLTLProperty(prop)})\n"
+    case LTLProperty(op, Left(prop)) => s"${writeLTLOperator(op)}(${writeLTLProperty(prop)})"
     case LTLProperty(op, Right(expr)) => expr match {
       case VarRef(name) => s"${writeLTLOperator(op)}(__currentState = ${name.toUpperCase()})"
       case _ => s"${writeLTLOperator(op)}(${writeExpression(expr)})"
@@ -130,6 +130,7 @@ object TLA {
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
+      case ScopedParamRef(transition, parameter) => builder.append(transition + "_" + parameter)
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b.toString.toUpperCase)
@@ -191,7 +192,7 @@ object TLA {
         right match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
-          case _ => builder.append(writeExpression(left))
+          case _ => builder.append(writeExpression(right))
         }
 
       case SequenceSize(sequence) => builder.append(s"Len(${writeExpression(sequence)})")

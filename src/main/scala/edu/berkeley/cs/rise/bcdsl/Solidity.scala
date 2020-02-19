@@ -42,6 +42,7 @@ object Solidity {
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
+      case ScopedParamRef(_,_) => throw new IllegalArgumentException("Found ScopedParamRef in transition body")
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b)
@@ -119,6 +120,7 @@ object Solidity {
   private def writeAssignable(assignable: Assignable): String = assignable match {
     case VarRef(name) => name
     case MappingRef(mapName, key) => s"${writeExpression(mapName)}[${writeExpression(key)}]"
+    case ScopedParamRef(_,_) => throw new IllegalArgumentException("Found ScopedParamRef in transition body")
   }
 
   private def writeStatement(statement: Statement): String = statement match {
