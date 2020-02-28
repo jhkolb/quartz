@@ -16,7 +16,8 @@ object SpecificationParser extends JavaTokenParsers {
     "Timespan" ^^^ Timespan |
     "Bool" ^^^ Bool |
     "Mapping" ~ "[" ~> dataTypeDecl ~ "," ~ dataTypeDecl <~ "]" ^^ { case keyType ~ "," ~ valueType => Mapping(keyType, valueType) } |
-    "Sequence" ~ "[" ~> dataTypeDecl <~ "]" ^^ (elementType => Sequence(elementType))
+    "Sequence" ~ "[" ~> dataTypeDecl <~ "]" ^^ (elementType => Sequence(elementType)) |
+    ident ^^ Struct
 
   def variableDecl: Parser[Variable] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Variable(name, ty) }
 
@@ -39,10 +40,17 @@ object SpecificationParser extends JavaTokenParsers {
     stringLiteral ^^ { s => StringLiteral(stripQuotes(s)) } |
     assignable
 
-  def scopedParamRef: Parser[ScopedParamRef] = ident ~ "." ~ ident ^^
-    { case transition ~ "." ~ parameter => ScopedParamRef(transition, parameter) }
+  def structDecl: Parser[(String, Map[String, DataType])] = "struct" ~> ident ~ "{" ~ rep(variableDecl) <~ "}" ^^ { case name ~ "{" ~ fields =>
+    (name, fields.map(f => f.name -> f.ty).toMap)
+  }
 
-  def assignable: Parser[Assignable] = mappingRef | scopedParamRef | ident ^^ VarRef
+  def structAccessElem: Parser[Assignable] = mappingRef | ident ^^ VarRef
+  def structAccess: Parser[StructAccess] = structAccessElem ~ "." ~ rep1sep(structAccessElem, ".") ^^ { case first ~ "." ~ rest =>
+      val root = StructAccess(first, rest.head)
+      rest.tail.foldLeft(root)((current, elem) => StructAccess(current, elem))
+  }
+
+  def assignable: Parser[Assignable] = structAccess | mappingRef | ident ^^ VarRef
 
   def multDiv: Parser[ArithmeticOperator] = "*" ^^^ Multiply | "/" ^^^ Divide
 
@@ -125,7 +133,10 @@ object SpecificationParser extends JavaTokenParsers {
     Transition(name, origin, destination, parameters, auth, autoStmt.isDefined, guard, body)
   }
 
-  def stateMachine: Parser[StateMachine] = fieldList ~ rep(transition) ^^ { case fields ~ transitions => StateMachine(fields, transitions) }
+  def stateMachine: Parser[StateMachine] = rep(structDecl) ~ fieldList ~ rep(transition) ^^ { case structs ~ fields ~ transitions =>
+    val structMap = structs.map{ case (name, fields) => name -> fields }.toMap
+    StateMachine(structMap, fields, transitions)
+  }
 
   def ltlOperator: Parser[LTLOperator] = "[]" ^^^ Always |
     "<>" ^^^ Eventually
@@ -135,5 +146,6 @@ object SpecificationParser extends JavaTokenParsers {
 
   def propertySpec: Parser[Seq[LTLProperty]] = "properties" ~ "{" ~> rep(ltlProperty) <~ "}"
 
-  def specification: Parser[Specification] = "contract" ~> ident ~ "{" ~ stateMachine ~ "}" ~ opt(propertySpec) ^^ { case name ~ "{" ~ stateMachine ~ "}" ~ props => Specification(name, stateMachine, props) }
+  def specification: Parser[Specification] = "contract" ~> ident ~ "{" ~ stateMachine ~ "}" ~ opt(propertySpec) ^^
+    { case name ~ "{" ~ stateMachine ~ "}" ~ props => Specification(name, stateMachine, props) }
 }

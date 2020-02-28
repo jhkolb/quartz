@@ -9,12 +9,12 @@ case class Transition(name: String, origin: Option[String], destination: String,
   private def makeTypeErrMsg(idx: Int, msg: String): String =
     s"Type error on statement ${idx + 1} of transition $description: $msg"
 
-  def validate(context: Map[String, DataType]): Option[String] = {
+  def validate(context: Context): Option[String] = {
     val paramsMap = parameters.fold(Map.empty[String, DataType]) { params =>
       params.map(variable => variable.name -> variable.ty).toMap
     }
     // Check that transition parameters do not shadow previously defined variables
-    paramsMap.keySet.intersect(context.keySet).headOption.foreach { shadowed =>
+    paramsMap.keySet.intersect(context.variables.keySet).headOption.foreach { shadowed =>
       return Some(s"Transition $description shadows field or keyword $shadowed")
     }
     // And check that any constrained parameters are of the correct type
@@ -26,8 +26,8 @@ case class Transition(name: String, origin: Option[String], destination: String,
         return Some(s"Special parameter $name is of type $actualTy when it must be of type $expectedTy")
       }
     }
-    val localContext = context ++ paramsMap
 
+    val localContext = Context(context.structs, context.variables ++ paramsMap)
     // Check that transition is not designated as automatic but has an authorization restriction
     if (auto && authorized.isDefined) {
       return Some(s"Automatic transition $description cannot have authorization restriction")
@@ -49,7 +49,7 @@ case class Transition(name: String, origin: Option[String], destination: String,
     // Check that authorization clause does not reference undefined identities or invalid types
     for (term <- authorized.fold(Set.empty[AuthTerm])(_.flatten)) {
       val name = term.getReferencedName
-      context.get(name) match {
+      context.variables.get(name) match {
         case None => return Some(s"Transition $description references unknown identities $name")
         case Some(Identity) | Some(Sequence(Identity)) => ()
         case Some(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
@@ -125,7 +125,7 @@ case class Transition(name: String, origin: Option[String], destination: String,
   }
 }
 
-case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
+case class StateMachine(structs: Map[String, Map[String, DataType]], fields: Seq[Variable], transitions: Seq[Transition]) {
   val states: Set[String] = transitions.foldLeft(Set.empty[String]) { (currentStates, transition) =>
     currentStates ++ transition.origin.toSet + transition.destination
   }
@@ -169,9 +169,10 @@ case class StateMachine(fields: Seq[Variable], transitions: Seq[Transition]) {
       return Some("Unreachable states: " + unreachableStates.mkString(", "))
     }
 
-    val context = fields.foldLeft(Specification.RESERVED_VALUES) { (ctx, field) =>
+    val varContext = fields.foldLeft(Specification.RESERVED_VALUES) { (ctx, field) =>
       ctx + (field.name -> field.ty)
     }
+    val context = Context(structs, varContext)
     for (transition <- transitions) {
       transition.validate(context).foreach(err => return Some(err))
     }

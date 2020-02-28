@@ -9,15 +9,18 @@ case object Bool extends DataType
 case object Timespan extends DataType
 case class Mapping(keyType: DataType, valueType: DataType) extends DataType
 case class Sequence(elementType: DataType) extends DataType
+case class Struct(name: String) extends DataType
+
+case class Context(structs: Map[String, Map[String, DataType]], variables: Map[String, DataType])
 
 sealed abstract class Typed {
   private var ty: Option[DataType] = None
 
-  protected def determineType(context: Map[String, DataType]): Either[String, DataType]
+  protected def determineType(context: Context): Either[String, DataType]
 
-  def getType(context: Map[String, DataType]): Either[String, DataType] = {
+  def getType(context: Context): Either[String, DataType] = {
     determineType(context) match {
-      case result @ Right(determinedTy) =>
+      case result@Right(determinedTy) =>
         ty = Some(determinedTy)
         result
       case err => err
@@ -33,41 +36,30 @@ sealed abstract class Typed {
 }
 
 sealed trait Expression extends Typed
+
 sealed trait Assignable extends Expression
 
 case class VarRef(name: String) extends Assignable {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = context.get(name) match {
+  override def determineType(context: Context): Either[String, DataType] = context.variables.get(name) match {
     case None => Left(s"Undefined field $name")
     case Some(ty) => Right(ty)
   }
 }
 
-// This can only be used within LTL properties
-// This is enforced by type checking - scoped names only belong to context within LTL properties
-case class ScopedParamRef(transition: String, parameter: String) extends Assignable {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = {
-    val scopedName = s"$transition.$parameter"
-    context.get(scopedName) match {
-      case None => Left(s"Undefined transition parameter $scopedName")
-      case Some(ty) => Right(ty)
-    }
-  }
-}
-
 case class IntConst(value: Int) extends Expression {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(Int)
+  override def determineType(context: Context): Either[String, DataType] = Right(Int)
 }
 
 case class StringLiteral(value: String) extends Expression {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(String)
+  override def determineType(context: Context): Either[String, DataType] = Right(String)
 }
 
 case class BoolConst(value: Boolean) extends Expression {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(Bool)
+  override def determineType(context: Context): Either[String, DataType] = Right(Bool)
 }
 
 case class MappingRef(map: Expression, key: Expression) extends Assignable {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = map.getType(context) match {
+  override def determineType(context: Context): Either[String, DataType] = map.getType(context) match {
     case Left(msg) => Left(s"Invalid mapping type: $msg")
     case Right(Mapping(keyType, valueType)) => key.getType(context) match {
       case Left(err) => Left(s"Type error in map key expression: $err")
@@ -78,6 +70,44 @@ case class MappingRef(map: Expression, key: Expression) extends Assignable {
       }
     }
     case Right(ty) => Left(s"Cannot perform key lookup on non-map type $ty")
+  }
+
+  // Used to extract name of outermost mapping, e.g. (m[x][y][z]).rootName is "m"
+  // Useful for type checking struct field accesses (e.g. "s.m[94][95]")
+  lazy val rootName: String = map match {
+    case VarRef(name) => name
+    case m@MappingRef(_, _) => m.rootName
+    case _ => throw new IllegalArgumentException("Invalid MappingRef")
+  }
+}
+
+case class StructAccess(struct: Assignable, field: Assignable) extends Assignable {
+  override protected def determineType(context: Context): Either[String, DataType] = {
+    struct.getType(context) match {
+      case Left(msg) => Left(s"Invalid struct type: $msg")
+      case Right(Struct(structName)) => context.structs.get(structName) match {
+        case None => Left(s"Struct type $structName undefined")
+        case Some(structFields) => field match {
+          case VarRef(name) => structFields.get(name) match {
+            case None => Left(s"Struct type $structName has no field $name")
+            case Some(ty) => Right(ty)
+          }
+
+          case m@MappingRef(_, _) => structFields.get(m.rootName) match {
+            case None => Left(s"Struct type $structName has no field ${m.rootName}")
+            // Note that if the struct contains a field name already defined in the original context,
+            // the field's name-type binding will have higher precedence
+            case Some(_) =>
+              val augmentedVars = context.variables ++ structFields
+              m.getType(Context(context.structs, augmentedVars))
+          }
+
+          // This should never happen as the "." operator is left associative
+          case _: StructAccess => throw new IllegalArgumentException("Malformed struct reference")
+        }
+      }
+      case Right(ty) => Left(s"Cannot access field of non struct type $ty")
+    }
   }
 }
 
@@ -110,7 +140,7 @@ case object Always extends LTLOperator
 case object Eventually extends LTLOperator
 
 sealed trait Timespan extends Expression {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = Right(Timespan)
+  override def determineType(context: Context): Either[String, DataType] = Right(Timespan)
 }
 case object Second extends Timespan
 case object Minute extends Timespan
@@ -119,7 +149,7 @@ case object Day extends Timespan
 case object Week extends Timespan
 
 case class LogicalOperation(left: Expression, operator: LogicalOperator, right: Expression) extends Expression {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = for (
+  override def determineType(context: Context): Either[String, DataType] = for (
     leftTy <- left.getType(context);
     rightTy <- right.getType(context);
 
@@ -148,7 +178,7 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
 }
 
 case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, right: Expression) extends Expression {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] = for (
+  override def determineType(context: Context): Either[String, DataType] = for (
     leftTy <- left.getType(context);
     rightTy <- right.getType(context);
     resultTy <- leftTy match {
@@ -190,9 +220,9 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
 }
 
 case class SequenceSize(sequence: Expression) extends Expression {
-  override def determineType(context: Map[String, DataType]): Either[String, DataType] =
+  override def determineType(context: Context): Either[String, DataType] =
     sequence.getType(context) match {
-      case err @ Left(_) => err
+      case err@Left(_) => err
       case Right(Sequence(_)) => Right(Int)
       case Right(ty) => Left(s"Cannot compute size of non-sequence type $ty")
     }
@@ -201,7 +231,7 @@ case class SequenceSize(sequence: Expression) extends Expression {
 case class LTLProperty(operator: LTLOperator, body: Either[LTLProperty, Expression])
 
 sealed trait AuthExpression {
-  private [bcdsl] def flatten: Set[AuthTerm]
+  private[bcdsl] def flatten: Set[AuthTerm]
 }
 
 sealed trait AuthTerm extends AuthExpression {

@@ -1,8 +1,9 @@
 package edu.berkeley.cs.rise.bcdsl
 
 case class Specification(name: String, stateMachine: StateMachine, invariants: Option[Seq[LTLProperty]]) {
+  // For now, this just verifies that all referenced variables are well defined
   @scala.annotation.tailrec
-  private def validateLTLProperty(ltlProp: LTLProperty, context: Map[String, DataType]): Option[String] = ltlProp match {
+  private def validateLTLProperty(ltlProp: LTLProperty, context: Context): Option[String] = ltlProp match {
     case LTLProperty(_, Left(p)) => validateLTLProperty(p, context)
     case LTLProperty(_, Right(exp)) => exp.getType(context) match {
       case Left(msg) => Some(msg)
@@ -10,14 +11,22 @@ case class Specification(name: String, stateMachine: StateMachine, invariants: O
     }
   }
 
-  // For now, this just verifies that all referenced variables are well defined
   private def validateLTLProperties(): Option[String] = {
     // State names are treated as booleans. Each is true if the machine is in that state.
     val baseMap = Specification.RESERVED_VALUES ++ stateMachine.states.map(_ -> Bool).toMap
     val fieldMap = stateMachine.fields.foldLeft(baseMap){ (ctx, f) => ctx + (f.name -> f.ty) }
-    val ltlContext = stateMachine.transitions.foldLeft(fieldMap) { (ctx, t) =>
-      t.parameters.fold(ctx)(params => ctx ++ params.map(p => s"${t.name}.${p.name}" -> p.ty).toMap)
-    }
+
+    // Each transition implicitly defines a struct with all of the its parameters as fields
+    // These structs can be referenced from LTL properties
+    // TLA translation handles defining them for use in model checking
+    val transitionStructs = stateMachine.transitions.map { t =>
+      val structName = s"__${t.name}Struct"
+      val structFields = t.parameters.fold(Map.empty[String, DataType])(_.map(p => p.name -> p.ty).toMap)
+      structName -> structFields
+    }.toMap
+    val transitionVars = stateMachine.transitions.map(t => t.name -> Struct(s"__${t.name}Struct")).toMap
+    val ltlContext = Context(transitionStructs, fieldMap ++ transitionVars)
+
     invariants.foreach(_.foreach(validateLTLProperty(_, ltlContext) match {
       case None => Unit
       case err => return err

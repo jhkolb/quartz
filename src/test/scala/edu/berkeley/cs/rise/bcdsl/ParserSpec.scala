@@ -17,6 +17,7 @@ object ParserSpec {
     "simpleMultiSig.txt",
     "majorityMultiSig.txt",
     "strictMultiSig.txt",
+    "struct.txt",
   )
 
   private val OUTPUT_DIR = "testOutput"

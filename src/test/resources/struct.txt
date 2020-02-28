@@ -1,0 +1,39 @@
+contract StructTest {
+    struct A {
+        x: Int
+    }
+
+    struct B {
+        a: A
+    }
+
+    struct C {
+        b: B
+        y: Int
+    }
+
+    struct St {
+        m: Mapping[Int, Mapping[Int, Int]]
+    }
+
+    struct MapStruct {
+        m: Mapping[Int, A]
+    }
+
+    data {
+        c: C
+        s: St
+        t: MapStruct
+    }
+
+    initialize: ->configured {
+        s.m[4][8] = 15
+        c.b.a.x = 23
+        t.m[19].x = 10
+    }
+
+    modify: configured -> modified {
+        c.b.y = 42
+        s.m[108][18] = 40
+    }
+}

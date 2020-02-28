@@ -10,6 +10,8 @@ object PlusCal {
   private val CURRENT_STATE_VAR = "__currentState"
   private val STATE_STASH_VAR = "__stateStash"
 
+  private type StructRegistry = Map[String, Map[String, DataType]]
+
   private var labelCounter = 0
   private var indentationLevel = 0
 
@@ -24,29 +26,32 @@ object PlusCal {
 
   private def writeLine(line: String): String = s"${INDENTATION_STR * indentationLevel}$line\n"
 
-  private def writeDomain(ty: DataType): String = ty match {
+  private def writeDomain(ty: DataType, structs: StructRegistry): String = ty match {
     case Identity => "IDENTITIES \\ {ZERO_IDENT}"
     case Int => "MIN_INT..MAX_INT"
     case Bool => "{ TRUE, FALSE }"
     case Timestamp => "0..MAX_INT"
     case Timespan => "0..MAX_INT"
     case String => throw new NotImplementedError("Strings have infinite domain") // TODO
-    case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType)} -> ${writeDomain(valueType)} ]"
-    case Sequence(elementType) => s"[ x \\in 1..MAX_INT -> ${writeDomain(elementType)} ]"
+    case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
+    case Struct(name) => "[" + structs(name).map{case (name, ty) => s"$name -> ${writeDomain(ty, structs)}"}.mkString(", ") + "]"
+    case Sequence(elementType) => s"[ x \\in 1..MAX_INT -> ${writeDomain(elementType, structs)} ]"
   }
 
-  private def writeZeroElement(ty: DataType): String = ty match {
+  private def writeZeroElement(ty: DataType, structs: StructRegistry): String = ty match {
     case Identity => "ZERO_IDENT"
     case Int => "0"
     case String => "\"\""
     case Timestamp => "0"
     case Bool => "FALSE"
     case Timespan => "0"
-    case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType)} |-> ${writeZeroElement(valueType)} ]"
+    case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} |-> ${writeZeroElement(valueType, structs)} ]"
     case Sequence(_) => "<<>>"
+    case Struct(name) =>
+      "[" + structs(name).map{case (name, ty) => s"$name -> ${writeZeroElement(ty, structs)}".mkString(",")} + "]"
   }
 
-  private def writeField(field: Variable): String = s"${field.name} = ${writeZeroElement(field.ty)}"
+  private def writeField(field: Variable, structs: StructRegistry): String = s"${field.name} = ${writeZeroElement(field.ty, structs)}"
 
   private def writeApprovalVarName(transition: Transition, term: AuthTerm): String =
   // Only non-initial transitions can have authorization clause
@@ -65,14 +70,14 @@ object PlusCal {
       s"${writeApprovalVarName(transition, term)}[ $paramsStructRepr ]"
   }
 
-  private def writeApprovalVarInit(transition: Transition, term: AuthTerm): String = transition.parameters match {
+  private def writeApprovalVarInit(transition: Transition, term: AuthTerm, structs: StructRegistry): String = transition.parameters match {
     case None => "FALSE"
     case Some(params) =>
       val effectiveParams = term match {
         case IdentityLiteral(_) | AuthAny(_) => params
         case AuthAll(_) => Variable(RESERVED_NAME_TRANSLATIONS("sender"), Identity) +: params
       }
-      val paramsStructRepr = "[" + effectiveParams.map(p => s"${p.name}: ${writeDomain(p.ty)}").mkString(", ") + "]"
+      val paramsStructRepr = "[" + effectiveParams.map(p => s"${p.name}: ${writeDomain(p.ty, structs)}").mkString(", ") + "]"
       s"[ x \\in $paramsStructRepr |-> FALSE]"
   }
 
@@ -86,11 +91,11 @@ object PlusCal {
           // We don't need an explicit variable to track this
           case IdentityLiteral(_) | AuthAny(_) => ()
           case AuthAll(_) =>
-            appendLine(builder, s"${writeApprovalVarName(trans, terms.head)} = ${writeApprovalVarInit(trans, terms.head)};")
+            appendLine(builder, s"${writeApprovalVarName(trans, terms.head)} = ${writeApprovalVarInit(trans, terms.head, machine.structs)};")
         }
       } else {
         terms.foreach { term =>
-          appendLine(builder, s"${writeApprovalVarName(trans, term)} = ${writeApprovalVarInit(trans, term)};")
+          appendLine(builder, s"${writeApprovalVarName(trans, term)} = ${writeApprovalVarInit(trans, term, machine.structs)};")
         }
       }
     })
@@ -197,7 +202,7 @@ object PlusCal {
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
-      case ScopedParamRef(transition, parameter) => builder.append(transition + "_" + parameter)
+      case StructAccess(struct, field) => builder.append(s"${writeExpression(struct)}.${writeExpression(field)}")
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b.toString.toUpperCase)
@@ -269,21 +274,15 @@ object PlusCal {
     builder.toString()
   }
 
-  private def writeAssignable(assignable: Assignable): String = assignable match {
-    case VarRef(name) => name
-    case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
-    case ScopedParamRef(transition, parameter) => transition + "_" + parameter
-  }
-
   private def writeStatement(statement: Statement): String = statement match {
-    case Assignment(left, right) => writeLine(s"${writeAssignable(left)} := ${writeExpression(right)};")
+    case Assignment(left, right) => writeLine(s"${writeExpression(left)} := ${writeExpression(right)};")
 
     case Send(destination, amount, source) => source match {
       case None => writeLine(s"call sendTokens(${writeExpression(destination)}, ${writeExpression(amount)});") + nextLabel() + "\n"
       case Some(s) =>
         val builder = new StringBuilder()
         appendLine(builder, s"__temporary := ${writeExpression(amount)};")
-        appendLine(builder, s"${writeAssignable(s)} := ${writeAssignable(s)} - __temporary;")
+        appendLine(builder, s"${writeExpression(s)} := ${writeExpression(s)} - __temporary;")
         appendLine(builder, s"call sendTokens(${writeExpression(destination)}, __temporary);")
         builder.append(nextLabel() + "\n")
         builder.toString()
@@ -443,9 +442,9 @@ object PlusCal {
     builder.toString()
   }
 
-  private def writeTransitionArgumentSelection(parameters: Seq[Variable]): String =
+  private def writeTransitionArgumentSelection(parameters: Seq[Variable], structs: StructRegistry): String =
   // Add "_arg" suffix to avoid name collisions in the TLA+ that gets produced from this PlusCal
-    "with " + parameters.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty)}").mkString(", ") + " do"
+    "with " + parameters.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty, structs)}").mkString(", ") + " do"
 
   // Systematically rename each transition's parameter to avoid collisions and facilitate expressive LTL
   // Also means we may need to modify statements in the transition's body
@@ -483,14 +482,15 @@ object PlusCal {
   }
 
   private def mangleAssignable(a: Assignable, transName: String, fieldNames: Set[String]): Assignable = a match {
-    case MappingRef(map, key) =>
-      MappingRef(mangleExpression(map, transName, fieldNames), mangleExpression(key, transName, fieldNames))
-    case ScopedParamRef(_,_) => throw new IllegalArgumentException("Found ScopedParamRef in transition body")
     case VarRef(name) => if ((fieldNames contains name) || (RESERVED_NAME_TRANSLATIONS contains name)) {
       VarRef(name)
     } else {
       VarRef(transName + "_" + name)
     }
+    case MappingRef(map, key) =>
+      MappingRef(mangleExpression(map, transName, fieldNames), mangleExpression(key, transName, fieldNames))
+    case StructAccess(struct, field) =>
+      StructAccess(mangleAssignable(struct, transName, fieldNames), mangleAssignable(field, transName, fieldNames))
   }
 
   // TODO code cleanup
@@ -526,7 +526,7 @@ object PlusCal {
     val nonInitialTransitions = stateMachine.transitions.filter(_.origin.isDefined)
     nonInitialTransitions.foreach { transition =>
       transition.parameters.foreach { params =>
-        appendLine(builder, writeTransitionArgumentSelection(params))
+        appendLine(builder, writeTransitionArgumentSelection(params, stateMachine.structs))
         indentationLevel += 1
       }
 
@@ -592,8 +592,8 @@ object PlusCal {
   }
 
   def writeSpecification(specification: Specification): String = specification match {
-    case Specification(name, StateMachine(fields, transitions), _) =>
-      val stateMachine = StateMachine(fields, transitions.map(mangleTransition(_, fields.map(_.name).toSet)))
+    case Specification(name, StateMachine(structs, fields, transitions), _) =>
+      val stateMachine = StateMachine(structs, fields, transitions.map(mangleTransition(_, fields.map(_.name).toSet)))
       val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
 
       val builder = new StringBuilder()
@@ -620,7 +620,7 @@ object PlusCal {
       builder.append(writeAuthorizationFields(stateMachine))
 
       stateMachine.fields.foreach { field =>
-        appendLine(builder, s"${writeField(field)};")
+        appendLine(builder, s"${writeField(field, stateMachine.structs)};")
       }
 
       builder.append(writeStateStash(stateMachine))
@@ -646,7 +646,7 @@ object PlusCal {
       builder.append("begin Main:\n")
       // Add the usual "_arg" suffix to prevent name collisions in TLA+
       val initialParams = Variable("sender", Identity) +: initialTransition.parameters.getOrElse(Seq.empty[Variable])
-      val initialParamsChoice = initialParams.map(p => s"${p.name}_arg \\in ${writeDomain(p.ty)}").mkString(", ")
+      val initialParamsChoice = initialParams.map(p => s"${p.name}_arg \\in ${writeDomain(p.ty, stateMachine.structs)}").mkString(", ")
       appendLine(builder, s"with $initialParamsChoice do")
       indentationLevel += 1
       appendLine(builder, s"call ${initialTransition.name}(${initialParams.map(_.name + "_arg").mkString(", ")});")
@@ -655,7 +655,7 @@ object PlusCal {
       builder.append("\n")
 
       builder.append("Loop:\n")
-      appendLine(builder, s"with sender_arg \\in ${writeDomain(Identity)} do")
+      appendLine(builder, s"with sender_arg \\in ${writeDomain(Identity, stateMachine.structs)} do")
       indentationLevel += 1
       appendLine(builder, "call invokeContract(sender_arg);")
       indentationLevel -= 1

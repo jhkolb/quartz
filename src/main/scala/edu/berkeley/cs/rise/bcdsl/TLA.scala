@@ -130,7 +130,7 @@ object TLA {
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
-      case ScopedParamRef(transition, parameter) => builder.append(transition + "_" + parameter)
+      case StructAccess(struct, field) => builder.append(s"${writeExpression(struct)}.${writeExpression(field)}")
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b.toString.toUpperCase)

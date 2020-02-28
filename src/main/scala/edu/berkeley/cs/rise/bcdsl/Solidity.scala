@@ -32,6 +32,7 @@ object Solidity {
       case Timespan => "uint"
       case Mapping(keyType, valueType) => s"mapping(${writeType(keyType, payable)} => ${writeType(valueType, payable)})"
       case Sequence(elementType) => s"${writeType(elementType, payable)}[]"
+      case Struct(name) => name
     }
 
   private def writeField(field: Variable, payable: Boolean): String =
@@ -42,7 +43,7 @@ object Solidity {
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
-      case ScopedParamRef(_,_) => throw new IllegalArgumentException("Found ScopedParamRef in transition body")
+      case StructAccess(struct, fieldName) => builder.append(s"${writeExpression(struct)}.$fieldName")
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b)
@@ -119,8 +120,8 @@ object Solidity {
 
   private def writeAssignable(assignable: Assignable): String = assignable match {
     case VarRef(name) => name
-    case MappingRef(mapName, key) => s"${writeExpression(mapName)}[${writeExpression(key)}]"
-    case ScopedParamRef(_,_) => throw new IllegalArgumentException("Found ScopedParamRef in transition body")
+    case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
+    case StructAccess(struct, fieldName) => s"${writeExpression(struct)}.$fieldName"
   }
 
   private def writeStatement(statement: Statement): String = statement match {
