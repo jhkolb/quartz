@@ -1,0 +1,13 @@
+contract Minimal {
+    data {
+        ts: Timestamp
+    }
+
+    initialize: ->configured {
+        ts = now
+    }
+
+    modify: configured -> configured {
+        ts = ts + 4*days
+    }
+}

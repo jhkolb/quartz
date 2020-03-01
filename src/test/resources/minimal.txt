@@ -9,7 +9,7 @@ contract Minimal {
       answer: String
     }
 
-    intitialize: ->configured
+    initialize: ->configured
 
     run: configured -> running
     authorized [ zz ]
