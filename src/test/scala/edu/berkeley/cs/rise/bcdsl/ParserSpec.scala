@@ -9,15 +9,15 @@ import scala.io.Source
 
 object ParserSpec {
   private val TEST_FILES: Seq[String] = Seq(
-    "minimal.txt",
-    "equipment.txt",
-    "auction.txt",
-    "auction2.txt",
-    "auction3.txt",
-    "simpleMultiSig.txt",
-    "majorityMultiSig.txt",
-    "strictMultiSig.txt",
-    "struct.txt",
+    "minimal.qtz",
+    "equipment.qtz",
+    "auction.qtz",
+    "auction2.qtz",
+    "auction3.qtz",
+    "simpleMultiSig.qtz",
+    "majorityMultiSig.qtz",
+    "strictMultiSig.qtz",
+    "struct.qtz",
   )
 
   private val OUTPUT_DIR = "testOutput"
