@@ -1,0 +1,15 @@
+contract timestampMath {
+    data {
+        tSpan: Timespan
+        deadline: Timestamp
+    }
+
+    initialize: ->configured {
+        tSpan = 3*hours
+    }
+
+    modify: configured -> configured {
+        tSpan = tSpan + 30*minutes
+        deadline = now + tSpan
+    }
+}

@@ -1,0 +1,9 @@
+contract UndefinedStructParam {
+    struct Defined {}
+    data {
+        f1: Int
+        f2: Timestamp
+    }
+
+    initialize: ->(p1: Int, p2: UndefinedStruct) configured
+}

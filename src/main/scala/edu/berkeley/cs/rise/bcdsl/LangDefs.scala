@@ -195,11 +195,18 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
       }
 
       case Timestamp => operator match {
-        case Plus | Minus => rightTy match {
+        case Minus => rightTy match {
           case Timespan => Right(Timestamp)
-          case _ => Left(s"Illegal operation between Timestamp and $rightTy")
+          case Timestamp => Right(Timespan)
+          case _ => Left(s"Illegal subtraction of $rightTy from timestamp")
         }
-        case _ => Left("Illegal operation on Timestamp")
+
+        case Plus => rightTy match {
+          case Timespan => Right(Timestamp)
+          case _ => Left(s"Illegal addition of $rightTy to timestamp")
+        }
+
+        case Multiply | Divide => Left(s"Cannot multiply or divide timestamps")
       }
 
       case Timespan => operator match {

@@ -17,6 +17,14 @@ case class Transition(name: String, origin: Option[String], destination: String,
     paramsMap.keySet.intersect(context.variables.keySet).headOption.foreach { shadowed =>
       return Some(s"Transition $description shadows field or keyword $shadowed")
     }
+    // Check that all structs used as parameter types are well defined
+    paramsMap.values.find {
+      case Struct(name) => context.structs.get(name).isEmpty
+      case _ => false
+    }.foreach { ty =>
+      return Some(s"Transition $description has parameter of undefined struct type ${ty.asInstanceOf[Struct].name}")
+    }
+
     // And check that any constrained parameters are of the correct type
     val constrainedNames = paramsMap.keySet.intersect(Specification.CONSTRAINED_PARAMS.keySet)
     constrainedNames.foreach { name =>
@@ -134,6 +142,16 @@ case class StateMachine(structs: Map[String, Map[String, DataType]], fields: Seq
     // Check that no fields shadow a reserved value
     fields.map(_.name).toSet.intersect(Specification.RESERVED_VALUES.keySet).headOption.foreach { name =>
       return Some(s"State machine field $name shadows reserved value")
+    }
+
+    // Check that all struct types used in fields and transitions are defined
+    fields.find {
+      _.ty match {
+        case Struct(structName) => structs.get(structName).isEmpty
+        case _ => false
+      }
+    }.foreach { f =>
+      return Some(s"State machine field ${f.name} is of undefined struct type")
     }
 
     // Check that only one transition is missing a source, this indicates the initial state

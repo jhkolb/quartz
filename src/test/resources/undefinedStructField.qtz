@@ -1,0 +1,9 @@
+contract UndefinedStructField {
+    struct Defined {}
+    data {
+        f1: Defined
+        f2: Undefined
+    }
+
+    initialize: ->configured
+}
