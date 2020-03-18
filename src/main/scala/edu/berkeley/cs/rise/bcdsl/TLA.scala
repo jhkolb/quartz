@@ -38,8 +38,8 @@ object TLA {
     Utils.writeStringToFile(tempTlaFile, plusCal)
 
     // '!!' Runs the specified command and retrieves string output
-    val translationOutput = s"pcal -nocfg ${tempTlaFile.getAbsolutePath}".!!
-    if (!translationOutput.endsWith(s"New file ${tempTlaFile.getAbsolutePath} written.\n")) {
+    val translationOutput = Process(s"pcal -nocfg ${tempTlaFile.getAbsolutePath}").lineStream_!.mkString("\n")
+    if (!translationOutput.endsWith(s"New file ${tempTlaFile.getAbsolutePath} written.")) {
       throw new RuntimeException(s"PlusCal translator failed: $translationOutput")
     }
 

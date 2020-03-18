@@ -34,7 +34,7 @@ object PlusCal {
     case Timespan => "0..MAX_INT"
     case String => throw new NotImplementedError("Strings have infinite domain") // TODO
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
-    case Struct(name) => "[" + structs(name).map{case (name, ty) => s"$name -> ${writeDomain(ty, structs)}"}.mkString(", ") + "]"
+    case Struct(name) => "[" + structs(name).map { case (name, ty) => s"$name |-> ${writeDomain(ty, structs)}" }.mkString(", ") + "]"
     case Sequence(elementType) => s"[ x \\in 1..MAX_INT -> ${writeDomain(elementType, structs)} ]"
   }
 
@@ -48,7 +48,7 @@ object PlusCal {
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} |-> ${writeZeroElement(valueType, structs)} ]"
     case Sequence(_) => "<<>>"
     case Struct(name) =>
-      "[" + structs(name).map{case (name, ty) => s"$name -> ${writeZeroElement(ty, structs)}".mkString(",")} + "]"
+      "[" + structs(name).map { case (name, ty) => s"$name |-> ${writeZeroElement(ty, structs)}" }.mkString(", ") + "]"
   }
 
   private def writeField(field: Variable, structs: StructRegistry): String = s"${field.name} = ${writeZeroElement(field.ty, structs)}"
@@ -270,12 +270,17 @@ object PlusCal {
       case SequenceSize(sequence) => builder.append(s"Len(${writeExpression(sequence)})")
     }
 
-
     builder.toString()
   }
 
-  private def writeStatement(statement: Statement): String = statement match {
-    case Assignment(left, right) => writeLine(s"${writeExpression(left)} := ${writeExpression(right)};")
+  private def writeStatement(statement: Statement, lineTerminator: String): String = statement match {
+    case Assignment(left, right) => writeLine(s"${writeExpression(left)} := ${writeExpression(right)}$lineTerminator")
+
+    case SequenceAppend(sequence, element) =>
+      writeLine(s"${writeExpression(sequence)} := Append(${writeExpression(sequence)}, ${writeExpression(element)})$lineTerminator")
+
+    case SequenceClear(sequence) =>
+      writeLine(s"${writeExpression(sequence)} := <<>>$lineTerminator")
 
     case Send(destination, amount, source) => source match {
       case None => writeLine(s"call sendTokens(${writeExpression(destination)}, ${writeExpression(amount)});") + nextLabel() + "\n"
@@ -287,12 +292,6 @@ object PlusCal {
         builder.append(nextLabel() + "\n")
         builder.toString()
     }
-
-    case SequenceAppend(sequence, element) =>
-      writeLine(s"${writeExpression(sequence)} := Append(${writeExpression(sequence)}, ${writeExpression(element)});")
-
-    case SequenceClear(sequence) =>
-      writeLine(s"${writeExpression(sequence)} := <<>>;")
   }
 
   private def nextLabel(): String = {
@@ -331,7 +330,7 @@ object PlusCal {
       if (t.destination != t.origin.get) {
         appendLine(builder, s"$CURRENT_STATE_VAR := ${t.destination.toUpperCase};")
       }
-      t.body.foreach(_.foreach(s => builder.append(writeStatement(s))))
+      t.body.foreach(b => builder.append(writeTransitionBody(b)))
       appendLine(builder, "return;")
       indentationLevel -= 1
       appendLine(builder, "end if;")
@@ -426,10 +425,7 @@ object PlusCal {
     if (transition.parameters.getOrElse(Seq.empty[Variable]).contains(Variable("tokens", Int))) {
       appendLine(builder, "balance := balance + tokens;")
     }
-    transition.body.foreach(_.foreach { statement =>
-      // Statements handle their own indentation
-      builder.append(writeStatement(statement))
-    })
+    transition.body.foreach(b => builder.append(writeTransitionBody(b)))
 
     if (transition.origin.fold(false)(_ == transition.destination)) {
       builder.append(writeClearAuthTerms(transition))
@@ -446,51 +442,71 @@ object PlusCal {
   // Add "_arg" suffix to avoid name collisions in the TLA+ that gets produced from this PlusCal
     "with " + parameters.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty, structs)}").mkString(", ") + " do"
 
-  // Systematically rename each transition's parameter to avoid collisions and facilitate expressive LTL
+  // Use the "||" line terminator between assignments, ";" otherwise
+  // This deals with multiple assignments to the same struct under a single label
+  private def writeTransitionBody(body: Seq[Statement]): String = body match {
+    case Seq(s) => writeStatement(s, ";")
+    case _ =>
+      val builder = new StringBuilder()
+      body.sliding(2).foreach { case Seq(current, next) =>
+        val terminator = next match {
+          case _: Send => ";"
+          case _ => " ||"
+        }
+        builder.append(writeStatement(current, terminator))
+      }
+      builder.append(writeStatement(body.last, ";"))
+      builder.toString()
+  }
+
+  // Systematically rename each transition's parameters to avoid collisions and facilitate expressive LTL
   // Also means we may need to modify statements in the transition's body
   // Each parameter name now includes the transition's name as a prefix
-  private def mangleTransition(transition: Transition, fieldNames: Set[String]): Transition = {
+  private def mangleTransition(transition: Transition): Transition = {
     val newParameters = transition.parameters.map(_.map(p => Variable(s"${transition.name}_${p.name}", p.ty)))
-    val newGuard = transition.guard.map(mangleExpression(_, transition.name, fieldNames))
-    val newBody = transition.body.map(_.map(mangleStatement(_, transition.name, fieldNames)))
+    val newGuard = transition.guard.map(mangleExpression(_, transition))
+    val newBody = transition.body.map(_.map(mangleStatement(_, transition)))
 
     Transition(transition.name, transition.origin, transition.destination, newParameters,
-                transition.authorized, transition.auto, newGuard, newBody)
+      transition.authorized, transition.auto, newGuard, newBody)
   }
 
   // Helper method for mangleTransition
-  private def mangleStatement(s: Statement, transName: String, fieldNames: Set[String]): Statement = s match {
+  private def mangleStatement(s: Statement, transition: Transition): Statement = s match {
     case Assignment(left, right) =>
-      Assignment(mangleAssignable(left, transName, fieldNames), mangleExpression(right, transName, fieldNames))
+      Assignment(mangleAssignable(left, transition), mangleExpression(right, transition))
     case Send(destination, amount, source) =>
-      Send(mangleExpression(destination, transName, fieldNames), mangleExpression(amount, transName, fieldNames),
-           source.map(mangleAssignable(_, transName, fieldNames)))
+      Send(mangleExpression(destination, transition), mangleExpression(amount, transition),
+        source.map(mangleAssignable(_, transition)))
     case SequenceAppend(sequence, element) =>
-      SequenceAppend(mangleExpression(sequence, transName, fieldNames), mangleExpression(element, transName, fieldNames))
-    case SequenceClear(sequence) => SequenceClear(mangleExpression(sequence, transName, fieldNames))
+      SequenceAppend(mangleExpression(sequence, transition), mangleExpression(element, transition))
+    case SequenceClear(sequence) => SequenceClear(mangleExpression(sequence, transition))
   }
 
   // Helper method for mangleTransition
-  private def mangleExpression(e: Expression, transName: String, fieldNames: Set[String]): Expression = e match {
+  private def mangleExpression(e: Expression, transition: Transition): Expression = e match {
     case ArithmeticOperation(left, operator, right) =>
-      ArithmeticOperation(mangleExpression(left, transName, fieldNames), operator, mangleExpression(right, transName, fieldNames))
+      ArithmeticOperation(mangleExpression(left, transition), operator, mangleExpression(right, transition))
     case LogicalOperation(left, operator, right) =>
-      LogicalOperation(mangleExpression(left, transName, fieldNames), operator, mangleExpression(right, transName, fieldNames))
-    case SequenceSize(sequence) => SequenceSize(mangleExpression(sequence,transName, fieldNames))
-    case a: Assignable => mangleAssignable(a, transName, fieldNames)
+      LogicalOperation(mangleExpression(left, transition), operator, mangleExpression(right, transition))
+    case SequenceSize(sequence) => SequenceSize(mangleExpression(sequence, transition))
+    case a: Assignable => mangleAssignable(a, transition)
     case _ => e
   }
 
-  private def mangleAssignable(a: Assignable, transName: String, fieldNames: Set[String]): Assignable = a match {
-    case VarRef(name) => if ((fieldNames contains name) || (RESERVED_NAME_TRANSLATIONS contains name)) {
-      VarRef(name)
-    } else {
-      VarRef(transName + "_" + name)
+  private def mangleAssignable(a: Assignable, transition: Transition): Assignable = {
+    val parameterNames = transition.parameters.fold(Seq.empty[String])(_.map(_.name))
+    a match {
+      case v@VarRef(name) => if (parameterNames contains name) {
+        VarRef(s"${transition.name}_$name")
+      } else {
+        v
+      }
+      case MappingRef(map, key) =>
+        MappingRef(mangleExpression(map, transition), mangleExpression(key, transition))
+      case StructAccess(struct, field) =>
+        StructAccess(mangleAssignable(struct, transition), mangleAssignable(field, transition))
     }
-    case MappingRef(map, key) =>
-      MappingRef(mangleExpression(map, transName, fieldNames), mangleExpression(key, transName, fieldNames))
-    case StructAccess(struct, field) =>
-      StructAccess(mangleAssignable(struct, transName, fieldNames), mangleAssignable(field, transName, fieldNames))
   }
 
   // TODO code cleanup
@@ -593,7 +609,7 @@ object PlusCal {
 
   def writeSpecification(specification: Specification): String = specification match {
     case Specification(name, StateMachine(structs, fields, transitions), _) =>
-      val stateMachine = StateMachine(structs, fields, transitions.map(mangleTransition(_, fields.map(_.name).toSet)))
+      val stateMachine = StateMachine(structs, fields, transitions.map(mangleTransition))
       val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
 
       val builder = new StringBuilder()

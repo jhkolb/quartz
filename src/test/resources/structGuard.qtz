@@ -1,0 +1,22 @@
+contract structGuard {
+    struct Deadline {
+        time: Timestamp
+        enforced: Bool
+    }
+
+    data {
+        deadline: Deadline
+    }
+
+    initialize: ->(endTime: Timestamp) noEnforce {
+        deadline.time = endTime
+        deadline.enforced = false
+    }
+
+    triggerDeadline: noEnforce -> enforce {
+        deadline.enforced = true
+    }
+
+    close: enforce -> closed
+    requires [ deadline.enforced && now > deadline.time ]
+}

@@ -112,4 +112,9 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
     val spec = parseFile("undefinedStructParam.qtz")
     testSpecification(spec, errorExpected = true)
   }
+
+  test("Transition guard with struct access") {
+    val spec = parseFile("structGuard.qtz")
+    testSpecification(spec)
+  }
 }
