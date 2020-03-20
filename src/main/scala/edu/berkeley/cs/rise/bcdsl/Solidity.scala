@@ -35,6 +35,21 @@ object Solidity {
       case Struct(name) => name
     }
 
+  private def writeStructDefinition(name: String, fields: Map[String, DataType]): String = {
+    val builder = new StringBuilder()
+    appendLine(builder, s"struct $name {")
+
+    indentationLevel += 1
+    fields.foreach { case (fName, fTy) =>
+      // TODO Determine when field must be marked payable
+      appendLine(builder, s"${writeType(fTy, payable = false)} $fName;")
+    }
+    indentationLevel -= 1
+    appendLine(builder, "}")
+
+    builder.toString()
+  }
+
   private def writeField(field: Variable, payable: Boolean): String =
     s"${writeType(field.ty, payable)} public ${field.name}"
 
@@ -43,7 +58,7 @@ object Solidity {
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
-      case StructAccess(struct, fieldName) => builder.append(s"${writeExpression(struct)}.$fieldName")
+      case StructAccess(struct, fieldName) => builder.append(s"${writeExpression(struct)}.${writeExpression(fieldName)}")
       case IntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b)
@@ -118,14 +133,8 @@ object Solidity {
   private def writeParameters(parameters: Seq[(Variable, Boolean)]): String =
     parameters.map { case (param, payable) => writeParameter(param, payable) }.mkString(", ")
 
-  private def writeAssignable(assignable: Assignable): String = assignable match {
-    case VarRef(name) => name
-    case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
-    case StructAccess(struct, fieldName) => s"${writeExpression(struct)}.$fieldName"
-  }
-
   private def writeStatement(statement: Statement): String = statement match {
-    case Assignment(left, right) => writeLine(s"${writeAssignable(left)} = ${writeExpression(right)};")
+    case Assignment(left, right) => writeLine(s"${writeExpression(left)} = ${writeExpression(right)};")
 
     case Send(destination, amount, source) =>
       val destStr = destination match {
@@ -139,7 +148,7 @@ object Solidity {
         case Some(s) =>
           val builder = new StringBuilder()
           appendLine(builder, s"int __temporary = ${writeExpression(amount)};")
-          appendLine(builder, s"${writeAssignable(s)} = ${writeAssignable(s)} - __temporary;")
+          appendLine(builder, s"${writeExpression(s)} = ${writeExpression(s)} - __temporary;")
           appendLine(builder, s"$destStr.transfer(uint(__temporary));")
           builder.toString()
       }
@@ -203,23 +212,23 @@ object Solidity {
       appendLine(builder, s"require(${writeExpression(g)});")
     }
 
-    transition.authorized.foreach { authTerm =>
-      val subTerms = authTerm.flatten
+    transition.authorized.foreach { authExpr =>
+      val subTerms = authExpr.basis
       if (subTerms.size == 1) {
         // Authorization clause is just a single term, which simplifies things
         // No need for persistent bookkeeping except for an "all" term
         subTerms.head match {
-          case IdentityLiteral(identity) =>
-            appendLine(builder, s"if (${RESERVED_NAME_TRANSLATIONS("sender")} != $identity) {")
-          case AuthAny(collectionName) =>
-            appendLine(builder, s"if (!sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")})) {")
-          case AuthAll(collectionName) =>
+          case IdentityRef(identity) =>
+            appendLine(builder, s"if (${RESERVED_NAME_TRANSLATIONS("sender")} != ${writeExpression(identity)}) {")
+          case AuthAny(collection) =>
+            appendLine(builder, s"if (!sequenceContains(${writeExpression(collection)}, ${RESERVED_NAME_TRANSLATIONS("sender")})) {")
+          case AuthAll(collection) =>
             appendLine(builder, s"${writeApprovalVarRef(transition, subTerms.head)} = true;")
             val varName = writeApprovalVarName(transition, subTerms.head)
             transition.parameters.fold {
-              appendLine(builder, s"if (!allApproved($collectionName, $varName, $PARAM_HASH_PLACEHOLDER)) {")
+              appendLine(builder, s"if (!allApproved(${writeExpression(collection)}, $varName, $PARAM_HASH_PLACEHOLDER)) {")
             } { params =>
-              appendLine(builder, s"if (!allApproved($collectionName, $varName, ${writeParamHash(params)})) {")
+              appendLine(builder, s"if (!allApproved(${writeExpression(collection)}, $varName, ${writeParamHash(params)})) {")
             }
         }
         indentationLevel += 1
@@ -230,29 +239,29 @@ object Solidity {
         subTerms.zipWithIndex.foreach { case (subTerm, i) =>
           val conditional = if (i == 0) "if" else "else if"
           subTerm match {
-            case IdentityLiteral(identity) =>
-              appendLine(builder, s"$conditional (${RESERVED_NAME_TRANSLATIONS("sender")} == $identity) {")
+            case IdentityRef(identity) =>
+              appendLine(builder, s"$conditional (${RESERVED_NAME_TRANSLATIONS("sender")} == ${writeExpression(identity)}) {")
               indentationLevel += 1
               appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} = true;")
               indentationLevel -= 1
               appendLine(builder, "}")
 
-            case AuthAny(collectionName) =>
-              appendLine(builder, s"$conditional (sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")}) {")
+            case AuthAny(collection) =>
+              appendLine(builder, s"$conditional (sequenceContains(${writeExpression(collection)}, ${RESERVED_NAME_TRANSLATIONS("sender")}) {")
               indentationLevel += 1
               appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} = true;")
               indentationLevel -= 1
               appendLine(builder, "}")
 
-            case AuthAll(collectionName) =>
-              appendLine(builder, s"$conditional sequenceContains($collectionName, ${RESERVED_NAME_TRANSLATIONS("sender")}) {")
+            case AuthAll(collection) =>
+              appendLine(builder, s"$conditional sequenceContains(${writeExpression(collection)}, ${RESERVED_NAME_TRANSLATIONS("sender")}) {")
               indentationLevel += 1
               appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} = true;")
               indentationLevel -= 1
               appendLine(builder, "}")
           }
         }
-        appendLine(builder, s"if (!(${writeAuthClause(transition, authTerm)})) {")
+        appendLine(builder, s"if (!(${writeAuthClause(transition, authExpr)})) {")
         indentationLevel += 1
         appendLine(builder, "return;")
         indentationLevel -= 1
@@ -280,11 +289,11 @@ object Solidity {
     val builder = new StringBuilder()
 
     machine.transitions.foreach(trans => trans.authorized.foreach { authClause =>
-      val terms = authClause.flatten
+      val terms = authClause.basis
       if (terms.size == 1) {
         terms.head match {
           // We don't need an explicit variable to track this
-          case IdentityLiteral(_) | AuthAny(_) => ()
+          case IdentityRef(_) | AuthAny(_) => ()
           case AuthAll(_) =>
             appendLine(builder, s"${writeApprovalVarType(trans, terms.head)} private ${writeApprovalVarName(trans, terms.head)};")
         }
@@ -300,18 +309,18 @@ object Solidity {
   private def writeApprovalVarName(transition: Transition, term: AuthTerm): String =
   // Validation ensures that transition must have an origin
   // Only non-initial transitions can have authorization restrictions
-    s"__${transition.name}_${term.getReferencedName}Approved"
+    s"__${transition.name}_${transition.authTermNames(term)}Approved"
 
   private def writeApprovalVarType(transition: Transition, term: AuthTerm): String =
   // Use a hash of the parameters to record approvals specific to parameter combinations
     if (transition.parameters.isEmpty) {
       term match {
-        case IdentityLiteral(_) | AuthAny(_) => "bool"
+        case IdentityRef(_) | AuthAny(_) => "bool"
         case AuthAll(_) => "mapping(address => bool)"
       }
     } else {
       term match {
-        case IdentityLiteral(_) | AuthAny(_) => "mapping(bytes32 => bool)"
+        case IdentityRef(_) | AuthAny(_) => "mapping(bytes32 => bool)"
         case AuthAll(_) => "mapping(bytes32 => mapping(address => bool))"
       }
     }
@@ -319,13 +328,13 @@ object Solidity {
   private def writeApprovalVarRef(transition: Transition, term: AuthTerm): String =
     transition.parameters.fold {
       term match {
-        case IdentityLiteral(_) | AuthAny(_) => writeApprovalVarName(transition, term)
+        case IdentityRef(_) | AuthAny(_) => writeApprovalVarName(transition, term)
         case AuthAll(_) => writeApprovalVarName(transition, term) + s"[${RESERVED_NAME_TRANSLATIONS("sender")}]"
       }
     } { params =>
       val paramHashRepr = writeParamHash(params)
       term match {
-        case IdentityLiteral(_) | AuthAny(_) => writeApprovalVarName(transition, term) + s"[$paramHashRepr]"
+        case IdentityRef(_) | AuthAny(_) => writeApprovalVarName(transition, term) + s"[$paramHashRepr]"
         case AuthAll(_) => writeApprovalVarName(transition, term) + s"[$paramHashRepr][${RESERVED_NAME_TRANSLATIONS("sender")}]"
       }
     }
@@ -334,16 +343,15 @@ object Solidity {
     val builder = new StringBuilder()
     term match {
       case t: AuthTerm => t match {
-        case IdentityLiteral(_) | AuthAny(_) => builder.append(writeApprovalVarRef(transition, t))
+        case IdentityRef(_) | AuthAny(_) => builder.append(writeApprovalVarRef(transition, t))
 
-        case AuthAll(collectionName) =>
+        case AuthAll(collection) =>
           // Strip out last mapping reference so we can look at all identities
-          val senderName = RESERVED_NAME_TRANSLATIONS("sender")
           val varName = writeApprovalVarName(transition, t)
           transition.parameters.fold {
-            builder.append(s"allApproved($collectionName, $varName)")
+            builder.append(s"allApproved(${writeExpression(collection)}, $varName)")
           } { params =>
-            builder.append(s"allApproved($collectionName, $varName, ${writeParamHash(params)}")
+            builder.append(s"allApproved(${writeExpression(collection)}, $varName, ${writeParamHash(params)}")
           }
       }
 
@@ -373,7 +381,7 @@ object Solidity {
   }
 
   private def writeClearAuthTerms(transition: Transition): String = {
-    val authTerms = transition.authorized.fold(Set.empty[AuthTerm])(_.flatten)
+    val authTerms = transition.authorized.fold(Set.empty[AuthTerm])(_.basis)
     if (authTerms.size == 1) {
       authTerms.head match {
         case term@AuthAll(_) => writeClearAuthTerm(transition, term)
@@ -387,13 +395,13 @@ object Solidity {
   }
 
   private def writeClearAuthTerm(transition: Transition, term: AuthTerm): String = term match {
-    case IdentityLiteral(_) | AuthAny(_) =>
+    case IdentityRef(_) | AuthAny(_) =>
       writeLine(s"${writeApprovalVarRef(transition, term)} = false;")
-    case AuthAll(collectionName) =>
+    case AuthAll(collection) =>
       val varName = writeApprovalVarRef(transition, term).dropRight(s"[${RESERVED_NAME_TRANSLATIONS("sender")}]".length)
       s"""
-         |for (uint i = 0; i < $collectionName.length; i++) {
-         |    $varName[$collectionName[i]] = false;
+         |for (uint i = 0; i < ${writeExpression(collection)}.length; i++) {
+         |    $varName[${writeExpression(collection)}[i]] = false;
          |}
       """.trim.stripMargin.split("\n").map(INDENTATION_STR * indentationLevel + _).mkString("\n") + "\n"
   }
@@ -454,6 +462,7 @@ object Solidity {
       val builder = new StringBuilder()
       appendLine(builder, s"pragma solidity >=$SOLIDITY_VERSION;\n")
       appendLine(builder, s"contract $name {")
+      indentationLevel += 1
 
       val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
         val originState = transition.origin.get
@@ -462,7 +471,8 @@ object Solidity {
 
       val payableFields = extractPayableVars(stateMachine.flattenStatements, stateMachine.fields.map(_.name).toSet)
 
-      indentationLevel += 1
+      stateMachine.structs.foreach { case (name, fields) => builder.append(writeStructDefinition(name, fields)) }
+
       appendLine(builder, "enum State {")
       indentationLevel += 1
       stateMachine.states.toSeq.zipWithIndex.foreach { case (stateName, i) =>
@@ -481,14 +491,14 @@ object Solidity {
       builder.append("\n")
 
       val (transWithParams, transWithoutParams) = stateMachine.transitions.partition(_.parameters.isDefined)
-      val allAuthCheck = transWithoutParams.flatMap(_.authorized).flatMap(_.flatten).exists {
+      val allAuthCheck = transWithoutParams.flatMap(_.authorized).flatMap(_.basis).exists {
         case AuthAll(_) => true
         case _ => false
       }
       if (allAuthCheck) {
         builder.append(writeAllApprovesTest(false) + "\n")
       }
-      val allAuthParams = transWithParams.flatMap(_.authorized).flatMap(_.flatten).exists {
+      val allAuthParams = transWithParams.flatMap(_.authorized).flatMap(_.basis).exists {
         case AuthAll(_) => true
         case _ => false
       }
@@ -518,7 +528,7 @@ object Solidity {
       current.union(extractMembershipTypes(exp))
     }
 
-    val authTerms = stateMachine.transitions.flatMap(_.authorized).flatMap(_.flatten)
+    val authTerms = stateMachine.transitions.flatMap(_.authorized).flatMap(_.basis)
     val authMembershipTest = authTerms.exists {
       case AuthAll(_) | AuthAny(_) =>
         true

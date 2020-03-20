@@ -92,9 +92,9 @@ object SpecificationParser extends JavaTokenParsers {
   def logicalExpression: Parser[Expression] = chainl1(l2Clause, booleanOp ^^
     (op => (left: Expression, right: Expression) => LogicalOperation(left, op, right)))
 
-  def authTerm: Parser[AuthExpression] = "any" ~> ident ^^ AuthAny |
-    "all" ~> ident ^^ AuthAll |
-    ident ^^ IdentityLiteral |
+  def authTerm: Parser[AuthExpression] = "any" ~> assignable ^^ AuthAny |
+    "all" ~> assignable ^^ AuthAll |
+    assignable ^^ IdentityRef |
     "(" ~> authExpression <~ ")"
 
   def authExpression: Parser[AuthExpression] = chainl1(authTerm, booleanOp ^^

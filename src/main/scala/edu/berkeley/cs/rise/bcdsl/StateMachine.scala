@@ -9,6 +9,18 @@ case class Transition(name: String, origin: Option[String], destination: String,
   private def makeTypeErrMsg(idx: Int, msg: String): String =
     s"Type error on statement ${idx + 1} of transition $description: $msg"
 
+  // Assign a unique name to each term in the transition's authorization clause
+  // This is useful for things like generating names for variables to track
+  // previous authorizations
+  val authTermNames: Map[AuthTerm, String] = {
+    val terms = authorized.fold(Set.empty[AuthTerm])(_.basis)
+    val grouped = terms.groupBy(_.referencedAssignable.rootName)
+
+    grouped.foldLeft(Map.empty[AuthTerm, String]) { case (current, (name, terms)) =>
+      current ++ terms.zipWithIndex.map { case (term, idx) => term -> s"${name}_$idx" }
+    }
+  }
+
   def validate(context: Context): Option[String] = {
     val paramsMap = parameters.fold(Map.empty[String, DataType]) { params =>
       params.map(variable => variable.name -> variable.ty).toMap
@@ -55,12 +67,25 @@ case class Transition(name: String, origin: Option[String], destination: String,
     }
 
     // Check that authorization clause does not reference undefined identities or invalid types
-    for (term <- authorized.fold(Set.empty[AuthTerm])(_.flatten)) {
-      val name = term.getReferencedName
-      context.variables.get(name) match {
-        case None => return Some(s"Transition $description references unknown identities $name")
-        case Some(Identity) | Some(Sequence(Identity)) => ()
-        case Some(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
+    for (term <- authorized.fold(Set.empty[AuthTerm])(_.basis)) {
+      term match {
+        case IdentityRef(identity) => identity.getType(context) match {
+          case Right(Identity) => ()
+          case Right(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
+          case Left(err) => return Some(err)
+        }
+
+        case AuthAny(collection) => collection.getType(context) match {
+          case Right(Sequence(Identity)) => ()
+          case Right(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
+          case Left(err) => return Some(err)
+        }
+
+        case AuthAll(collection) => collection.getType(context) match {
+          case Right(Sequence(Identity)) => ()
+          case Right(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
+          case Left(err) => return Some(err)
+        }
       }
     }
 

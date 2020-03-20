@@ -1,0 +1,18 @@
+contract structAuthClause {
+    struct Signer {
+        id: Identity
+        expiration: Timestamp
+    }
+
+    data {
+        signer: Signer
+    }
+
+    initialize: ->(endTime: Timestamp) noEnforce {
+        signer.id = sender
+        signer.expiration = endTime
+    }
+
+    triggerEnforcement: noEnforce -> enforce
+    authorized [ signer.id ]
+}

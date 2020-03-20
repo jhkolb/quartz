@@ -37,15 +37,6 @@ sealed abstract class Typed {
 
 sealed trait Expression extends Typed
 
-sealed trait Assignable extends Expression
-
-case class VarRef(name: String) extends Assignable {
-  override def determineType(context: Context): Either[String, DataType] = context.variables.get(name) match {
-    case None => Left(s"Undefined field $name")
-    case Some(ty) => Right(ty)
-  }
-}
-
 case class IntConst(value: Int) extends Expression {
   override def determineType(context: Context): Either[String, DataType] = Right(Int)
 }
@@ -56,6 +47,19 @@ case class StringLiteral(value: String) extends Expression {
 
 case class BoolConst(value: Boolean) extends Expression {
   override def determineType(context: Context): Either[String, DataType] = Right(Bool)
+}
+
+sealed trait Assignable extends Expression {
+  def rootName: String
+}
+
+case class VarRef(name: String) extends Assignable {
+  override def determineType(context: Context): Either[String, DataType] = context.variables.get(name) match {
+    case None => Left(s"Undefined field $name")
+    case Some(ty) => Right(ty)
+  }
+
+  override val rootName: String = name
 }
 
 case class MappingRef(map: Expression, key: Expression) extends Assignable {
@@ -74,9 +78,10 @@ case class MappingRef(map: Expression, key: Expression) extends Assignable {
 
   // Used to extract name of outermost mapping, e.g. (m[x][y][z]).rootName is "m"
   // Useful for type checking struct field accesses (e.g. "s.m[94][95]")
-  lazy val rootName: String = map match {
+  // And for generating authorization variable names
+  override lazy val rootName: String = map match {
     case VarRef(name) => name
-    case m@MappingRef(_, _) => m.rootName
+    case m: MappingRef => m.rootName
     case _ => throw new IllegalArgumentException("Invalid MappingRef")
   }
 }
@@ -108,6 +113,12 @@ case class StructAccess(struct: Assignable, field: Assignable) extends Assignabl
       }
       case Right(ty) => Left(s"Cannot access field of non struct type $ty")
     }
+  }
+
+  override lazy val rootName: String = struct match {
+    case VarRef(name) => name
+    case m:MappingRef => m.rootName
+    case s:StructAccess => s.rootName
   }
 }
 
@@ -238,33 +249,27 @@ case class SequenceSize(sequence: Expression) extends Expression {
 case class LTLProperty(operator: LTLOperator, body: Either[LTLProperty, Expression])
 
 sealed trait AuthExpression {
-  private[bcdsl] def flatten: Set[AuthTerm]
+  def basis: Set[AuthTerm]
 }
 
 sealed trait AuthTerm extends AuthExpression {
-  def getReferencedName: String
+  def referencedAssignable: Assignable
 }
-
-case class IdentityLiteral(identity: String) extends AuthTerm {
-  override def flatten: Set[AuthTerm] = Set(this)
-
-  override def getReferencedName: String = identity
+case class IdentityRef(identity: Assignable) extends AuthTerm {
+  override val basis = Set(this)
+  override val referencedAssignable: Assignable = identity
 }
-
-case class AuthAny(collectionName: String) extends AuthTerm {
-  override def flatten: Set[AuthTerm] = Set(this)
-
-  override def getReferencedName: String = collectionName
+case class AuthAny(collection: Assignable) extends AuthTerm {
+  override val basis = Set(this)
+  override val referencedAssignable: Assignable = collection
 }
-
-case class AuthAll(collectionName: String) extends AuthTerm {
-  override def flatten: Set[AuthTerm] = Set(this)
-
-  override def getReferencedName: String = collectionName
+case class AuthAll(collection: Assignable) extends AuthTerm {
+  override val basis = Set(this)
+  override val referencedAssignable: Assignable = collection
 }
 
 case class AuthCombination(left: AuthExpression, operator: BooleanOperator, right: AuthExpression) extends AuthExpression {
-  override def flatten: Set[AuthTerm] = left.flatten.union(right.flatten)
+  override val basis: Set[AuthTerm] = left.basis.union(right.basis)
 }
 
 sealed trait Statement

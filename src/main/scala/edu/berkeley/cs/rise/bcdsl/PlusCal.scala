@@ -55,10 +55,10 @@ object PlusCal {
 
   private def writeApprovalVarName(transition: Transition, term: AuthTerm): String =
   // Only non-initial transitions can have authorization clause
-    s"${transition.name}_${term.getReferencedName}_approved"
+    s"${transition.name}_${transition.authTermNames(term)}_approved"
 
   private def writeApprovalVarRef(transition: Transition, term: AuthTerm): String = term match {
-    case IdentityLiteral(_) | AuthAny(_) => transition.parameters match {
+    case IdentityRef(_) | AuthAny(_) => transition.parameters match {
       case None => writeApprovalVarName(transition, term)
       case Some(params) =>
         val paramsStructRepr = "[" + params.map(p => s"${p.name} |-> ${p.name}").mkString(", ") + "]"
@@ -74,7 +74,7 @@ object PlusCal {
     case None => "FALSE"
     case Some(params) =>
       val effectiveParams = term match {
-        case IdentityLiteral(_) | AuthAny(_) => params
+        case IdentityRef(_) | AuthAny(_) => params
         case AuthAll(_) => Variable(RESERVED_NAME_TRANSLATIONS("sender"), Identity) +: params
       }
       val paramsStructRepr = "[" + effectiveParams.map(p => s"${p.name}: ${writeDomain(p.ty, structs)}").mkString(", ") + "]"
@@ -85,11 +85,11 @@ object PlusCal {
     val builder = new StringBuilder()
 
     machine.transitions.foreach(trans => trans.authorized.foreach { authClause =>
-      val terms = authClause.flatten
+      val terms = authClause.basis
       if (terms.size == 1) {
         terms.head match {
           // We don't need an explicit variable to track this
-          case IdentityLiteral(_) | AuthAny(_) => ()
+          case IdentityRef(_) | AuthAny(_) => ()
           case AuthAll(_) =>
             appendLine(builder, s"${writeApprovalVarName(trans, terms.head)} = ${writeApprovalVarInit(trans, terms.head, machine.structs)};")
         }
@@ -105,10 +105,10 @@ object PlusCal {
 
   private def getAuthorizationFieldNames(machine: StateMachine): Seq[String] = machine.transitions.flatMap { transition =>
     transition.authorized.fold(Seq.empty[String]) { authClause =>
-      val terms = authClause.flatten
+      val terms = authClause.basis
       if (terms.size == 1) {
         terms.head match {
-          case IdentityLiteral(_) | AuthAny(_) => Seq.empty[String]
+          case IdentityRef(_) | AuthAny(_) => Seq.empty[String]
           case term@AuthAll(_) => Seq(writeApprovalVarName(transition, term))
         }
       } else {
@@ -139,11 +139,12 @@ object PlusCal {
     val builder = new StringBuilder()
     term match {
       case t: AuthTerm => t match {
-        case IdentityLiteral(_) | AuthAny(_) => builder.append(writeApprovalVarRef(transition, t))
+        case IdentityRef(_) | AuthAny(_) => builder.append(writeApprovalVarRef(transition, t))
 
-        case AuthAll(collectionName) =>
+        case AuthAll(collection) =>
           val paramReprs = "sender |-> s" +: transition.parameters.getOrElse(Seq.empty[Variable]).map(p => s"${p.name} |-> ${p.name}")
-          builder.append(s"\\A s \\in $collectionName: ${writeApprovalVarName(transition, t)}[${paramReprs.mkString(", ")}]")
+          builder.append(s"\\A s \\in ${writeExpression(collection)}: " +
+            s"${writeApprovalVarName(transition, t)}[${paramReprs.mkString(", ")}]")
       }
 
       case AuthCombination(left, op, right) =>
@@ -174,7 +175,7 @@ object PlusCal {
   }
 
   private def writeClearAuthTerms(transition: Transition): String = {
-    val authTerms = transition.authorized.fold(Set.empty[AuthTerm])(_.flatten)
+    val authTerms = transition.authorized.fold(Set.empty[AuthTerm])(_.basis)
     if (authTerms.size == 1) {
       authTerms.head match {
         case term@AuthAll(_) => writeClearAuthTerm(transition, term)
@@ -188,12 +189,12 @@ object PlusCal {
   }
 
   private def writeClearAuthTerm(transition: Transition, term: AuthTerm): String = term match {
-    case IdentityLiteral(_) | AuthAny(_) =>
+    case IdentityRef(_) | AuthAny(_) =>
       writeLine(s"${writeApprovalVarRef(transition, term)} := FALSE;")
-    case AuthAll(collectionName) =>
+    case AuthAll(collection) =>
       val varName = writeApprovalVarName(transition, term)
       val paramReprs = transition.parameters.fold(Seq.empty[String])(_.map(p => s"${p.name} |-> ${p.name}"))
-      val effectiveParamReprs = s"sender \\in $collectionName" +: paramReprs
+      val effectiveParamReprs = s"sender \\in ${writeExpression(collection)}" +: paramReprs
       writeLine(s"$varName[${effectiveParamReprs.mkString(", ")}] := FALSE;")
   }
 
@@ -352,30 +353,30 @@ object PlusCal {
     }
 
     transition.authorized.foreach { authTerm =>
-      val subTerms = authTerm.flatten
+      val subTerms = authTerm.basis
       if (subTerms.size == 1) {
         subTerms.head match {
-          case IdentityLiteral(identity) =>
-            appendLine(builder, s"if sender /= $identity then")
+          case IdentityRef(assignable) =>
+            appendLine(builder, s"if sender /= ${writeExpression(assignable)} then")
             indentationLevel += 1
             appendLine(builder, "return;")
             indentationLevel -= 1
             appendLine(builder, "end if;")
             builder.append(nextLabel() + "\n")
 
-          case AuthAny(collectionName) =>
-            appendLine(builder, s"if sender \\notin $collectionName then")
+          case AuthAny(collection) =>
+            appendLine(builder, s"if sender \\notin ${writeExpression(collection)} then")
             indentationLevel += 1
             appendLine(builder, "return;")
             indentationLevel -= 1
             appendLine(builder, "end if;")
             builder.append(nextLabel() + "\n")
 
-          case AuthAll(collectionName) =>
+          case AuthAll(collection) =>
             appendLine(builder, s"${writeApprovalVarRef(transition, subTerms.head)} := TRUE;")
             val paramsRepr = "sender |-> s" +: transition.parameters.getOrElse(Seq.empty[Variable]).
               map(p => s"${p.name} |-> ${p.name}")
-            appendLine(builder, s"if ~(\\A s \\in $collectionName: " +
+            appendLine(builder, s"if ~(\\A s \\in ${writeExpression(collection)}: " +
               writeApprovalVarName(transition, subTerms.head) + s"[${paramsRepr.mkString(", ")}])" + " then")
             indentationLevel += 1
             appendLine(builder, "return;")
@@ -387,20 +388,20 @@ object PlusCal {
         subTerms.zipWithIndex.foreach { case (subTerm, i) =>
           val conditional = if (i == 0) "if" else "elsif"
           subTerm match {
-            case IdentityLiteral(identity) =>
-              appendLine(builder, s"$conditional sender = $identity then")
+            case IdentityRef(assignable) =>
+              appendLine(builder, s"$conditional sender = ${writeExpression(assignable)} then")
               indentationLevel += 1
               appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} := TRUE;")
               indentationLevel -= 1
 
-            case AuthAny(collectionName) =>
-              appendLine(builder, s"$conditional sender \\in $collectionName then")
+            case AuthAny(collection) =>
+              appendLine(builder, s"$conditional sender \\in ${writeExpression(collection)} then")
               indentationLevel += 1
               appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} := TRUE;")
               indentationLevel -= 1
 
-            case AuthAll(collectionName) =>
-              appendLine(builder, s"$conditional sender \\in $collectionName then")
+            case AuthAll(collection) =>
+              appendLine(builder, s"$conditional sender \\in ${writeExpression(collection)} then")
               indentationLevel += 1
               appendLine(builder, s"${writeApprovalVarRef(transition, subTerm)} := TRUE;")
               indentationLevel -= 1
