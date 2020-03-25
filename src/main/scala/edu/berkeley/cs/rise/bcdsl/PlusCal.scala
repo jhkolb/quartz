@@ -29,9 +29,11 @@ object PlusCal {
   private def writeDomain(ty: DataType, structs: StructRegistry): String = ty match {
     case Identity => "IDENTITIES \\ {ZERO_IDENT}"
     case Int => "MIN_INT..MAX_INT"
+    case UnsignedInt => "0..MAX_INT"
     case Bool => "{ TRUE, FALSE }"
     case Timestamp => "0..MAX_INT"
     case Timespan => "0..MAX_INT"
+    case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
     case String => throw new NotImplementedError("Strings have infinite domain") // TODO
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
     case Struct(name) => "[" + structs(name).map { case (name, ty) => s"$name |-> ${writeDomain(ty, structs)}" }.mkString(", ") + "]"
@@ -41,10 +43,12 @@ object PlusCal {
   private def writeZeroElement(ty: DataType, structs: StructRegistry): String = ty match {
     case Identity => "ZERO_IDENT"
     case Int => "0"
+    case UnsignedInt => "0"
     case String => "\"\""
     case Timestamp => "0"
     case Bool => "FALSE"
     case Timespan => "0"
+    case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} |-> ${writeZeroElement(valueType, structs)} ]"
     case Sequence(_) => "<<>>"
     case Struct(name) =>
@@ -205,6 +209,7 @@ object PlusCal {
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
       case StructAccess(struct, field) => builder.append(s"${writeExpression(struct)}.${writeExpression(field)}")
       case IntConst(v) => builder.append(v)
+      case UnsignedIntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b.toString.toUpperCase)
       case Second => builder.append("1")
@@ -451,7 +456,7 @@ object PlusCal {
       val builder = new StringBuilder()
       body.sliding(2).foreach { case Seq(current, next) =>
         val terminator = next match {
-          case _: Send => ";"
+          case _: Send => s";\n${nextLabel()}"
           case _ => " ||"
         }
         builder.append(writeStatement(current, terminator))

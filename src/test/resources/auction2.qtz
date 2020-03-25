@@ -16,7 +16,7 @@ contract Auction2 {
     }
 
 
-    submitBid: open ->(tokens: Int) open
+    submitBid: open ->(tokens: Uint) open
     requires [ tokens > HighestBid ] {
         Balances[HighestBidder] = Balances[HighestBidder] + HighestBid
         HighestBidder = sender

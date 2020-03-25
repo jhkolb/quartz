@@ -122,4 +122,9 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
     val spec = parseFile("structAuthClause.qtz")
     testSpecification(spec)
   }
+
+  test("Contract using unsigned integer field") {
+    val spec = parseFile("unsigned.qtz")
+    testSpecification(spec)
+  }
 }

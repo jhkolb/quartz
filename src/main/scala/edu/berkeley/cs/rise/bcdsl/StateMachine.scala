@@ -91,57 +91,56 @@ case class Transition(name: String, origin: Option[String], destination: String,
 
     // Type check all transition body statements
     for ((statement, i) <- body.getOrElse(Seq.empty[Statement]).zipWithIndex) {
-      statement match {
-        case Assignment(lhs, rhs) =>
-          val leftRes = lhs.getType(localContext)
-          val rightRes = rhs.getType(localContext)
-          (leftRes, rightRes) match {
-            case (Left(err), _) => return Some(makeTypeErrMsg(i, err))
-            case (_, Left(err)) => return Some(makeTypeErrMsg(i, err))
-            case (Right(leftTy), Right(rightTy)) if leftTy != rightTy => return Some(makeTypeErrMsg(i,
-              s"Left-hand type $leftTy does not match right-hand type of $rightTy"))
-            case (Right(_), Right(_)) => ()
+      val stTy = statement match {
+        case Assignment(lhs, rhs) => for (
+          leftTy <- lhs.getType(localContext);
+          rightTy <- rhs.getType(localContext)
+        ) yield leftTy match {
+          case Int => rightTy match {
+            case Int | UnsignedInt => Right(Unit)
+            case _ => Left(makeTypeErrMsg(i, s"Left-hand type $leftTy not compatible with right-hand type $rightTy"))
           }
 
-        case Send(sendDest, amount, source) =>
-          sendDest.getType(localContext) match {
-            case Left(err) => return Some(makeTypeErrMsg(i, err))
-            case Right(destTy) if destTy != Identity =>
-              return Some(makeTypeErrMsg(i, s"Expected send destination of type Identity but found $destTy"))
-            case Right(_) => ()
-          }
+          case _ =>
+            if (leftTy != rightTy)
+              Left(makeTypeErrMsg(i, s"Left-hand type $leftTy not compatible with right-hand type $rightTy"))
+            else Right(Unit)
+        }
 
-          amount.getType(localContext) match {
-            case Left(err) => return Some(makeTypeErrMsg(i, err))
-            case Right(amountTy) if amountTy != Int =>
-              return Some(makeTypeErrMsg(i, s"Expected send amount of type Int, but found $amountTy"))
-            case Right(_) => ()
-          }
+        case Send(sendDest, amount, source) => for (
+          destTy <- sendDest.getType(localContext);
+          amountTy <- amount.getType(localContext);
+          sourceTy <- source.fold(Right(Int): Either[String, DataType])(_.getType(localContext))
+        ) yield destTy match {
+          case Identity =>
+            amountTy match {
+              case Int | UnsignedInt => sourceTy match {
+                case Int | UnsignedInt => Right(Unit)
+                case _ => Left(makeTypeErrMsg(i, s"Expected send source of integer type but found $sourceTy"))
+              }
+              case _ => Left(makeTypeErrMsg(i, s"Expected send amount of integer type but found $amountTy"))
+            }
+          case _ => Left(makeTypeErrMsg(i, s"Expected send destination of Identity type but found $destTy"))
+        }
 
-          source.foreach(_.getType(localContext) match {
-            case Left(err) => return Some(makeTypeErrMsg(i, err))
-            case Right(sourceTy) if sourceTy != Int =>
-              return Some(makeTypeErrMsg(i, s"Expected send to consume var of type Int, but found type $sourceTy"))
-            case Right(_) => ()
-          })
+        case SequenceAppend(sequence, element) => for (
+          sequenceTy <- sequence.getType(localContext);
+          elementTy <- element.getType(localContext)
+        ) yield sequenceTy match {
+          case Sequence(t) =>
+            if (t == elementTy) Right(Unit)
+            else Left(s"Cannot append instance of $elementTy to sequence of $t instances")
 
-        case SequenceAppend(sequence, element) => sequence.getType(localContext) match {
-          case Left(err) => return Some(makeTypeErrMsg(i, err))
-          case Right(Sequence(elementTy)) => element.getType(localContext) match {
-            case Left(err) => return Some(makeTypeErrMsg(i, err))
-            case Right(ty) if ty == elementTy => ()
-            case Right(ty) =>
-              return Some(makeTypeErrMsg(i, s"Cannot append $ty instance to sequence of $elementTy instances"))
-          }
-          case Right(ty) => return Some(makeTypeErrMsg(i, s"Cannot append to non-sequence type $ty"))
+          case t => Left(s"Cannot append to non-sequence type $t")
         }
 
         case SequenceClear(sequence) => sequence.getType(localContext) match {
-          case Left(err) => return Some(makeTypeErrMsg(i, err))
-          case Right(Sequence(_)) => ()
-          case Right(ty) => return Some(makeTypeErrMsg(i, s"Cannot clear non sequence type $ty"))
+          case Right(Sequence(_)) => Right(Unit)
+          case Right(t) => Left(s"Cannot clear non-sequence type $t")
+          case err@Left(_) => err
         }
       }
+      stTy.left.foreach(msg => return Some(msg))
     }
     None
   }

@@ -14,13 +14,13 @@ contract Auction {
         Duration = duration
     }
 
-    initialBid: open ->(tokens: Int) open
+    initialBid: open ->(tokens: Uint) open
     requires [ HighestBid == 0 && tokens > 0 ] {
         HighestBid = tokens
         HighestBidder = sender
     }
 
-    submitBid: open ->(tokens: Int) open
+    submitBid: open ->(tokens: Uint) open
     requires [ tokens > HighestBid && HighestBid > 0 ] {
         send HighestBid to HighestBidder
         HighestBidder = sender

@@ -1,0 +1,14 @@
+contract UnsignedInt {
+    data {
+      foo: Uint
+    }
+
+    initialize: ->(initValue: Uint) configured {
+        foo = initValue + 4
+    }
+
+    payOut: configured -> paid {
+        foo = foo - 8
+        send foo to sender consuming foo
+    }
+}

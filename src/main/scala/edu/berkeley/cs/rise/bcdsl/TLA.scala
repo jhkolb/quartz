@@ -132,6 +132,7 @@ object TLA {
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
       case StructAccess(struct, field) => builder.append(s"${writeExpression(struct)}.${writeExpression(field)}")
       case IntConst(v) => builder.append(v)
+      case UnsignedIntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b.toString.toUpperCase)
       case Second => builder.append("1")

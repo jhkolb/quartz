@@ -3,10 +3,12 @@ package edu.berkeley.cs.rise.bcdsl
 sealed trait DataType
 case object Identity extends DataType
 case object Int extends DataType
+case object UnsignedInt extends DataType
 case object String extends DataType
 case object Timestamp extends DataType
 case object Bool extends DataType
 case object Timespan extends DataType
+case object Unit extends DataType
 case class Mapping(keyType: DataType, valueType: DataType) extends DataType
 case class Sequence(elementType: DataType) extends DataType
 case class Struct(name: String) extends DataType
@@ -39,6 +41,13 @@ sealed trait Expression extends Typed
 
 case class IntConst(value: Int) extends Expression {
   override def determineType(context: Context): Either[String, DataType] = Right(Int)
+}
+
+case class UnsignedIntConst(value: Int) extends Expression {
+  override def determineType(context: Context): Either[String, DataType] = {
+    assert(value >= 0)
+    Right(UnsignedInt)
+  }
 }
 
 case class StringLiteral(value: String) extends Expression {
@@ -117,8 +126,8 @@ case class StructAccess(struct: Assignable, field: Assignable) extends Assignabl
 
   override lazy val rootName: String = struct match {
     case VarRef(name) => name
-    case m:MappingRef => m.rootName
-    case s:StructAccess => s.rootName
+    case m: MappingRef => m.rootName
+    case s: StructAccess => s.rootName
   }
 }
 
@@ -166,16 +175,33 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
 
     resultTy <- operator match {
       case Equal | NotEqual =>
-        if (leftTy != rightTy) Left(s"Cannot equals check $leftTy with $rightTy") else Right(Bool)
-      case LessThan | LessThanOrEqual | GreaterThanOrEqual | GreaterThan =>
-        if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy")
-        else leftTy match {
-          case Int | Timestamp | Timespan => Right(Bool)
-          case _ => Left(s"Cannot compare instances of unordered type $leftTy")
+        leftTy match {
+          case Int | UnsignedInt => rightTy match {
+            case Int | UnsignedInt => Right(Bool)
+            case _ => Left(s"Cannot check instances of types $leftTy and $rightTy for equality")
+          }
+
+          case _ => if (leftTy != rightTy) Left(s"Cannot equals check $leftTy with $rightTy") else Right(Bool)
         }
-      case And | Or => if (leftTy != Bool) Left(s"Cannot apply AND/OR to $leftTy")
-                       else if (rightTy != Bool) Left(s"Cannot apply AND/OR to $rightTy")
-                       else Right(Bool)
+
+      case LessThan | LessThanOrEqual | GreaterThanOrEqual | GreaterThan =>
+        leftTy match {
+          case Int | UnsignedInt => rightTy match {
+            case Int | UnsignedInt => Right(Bool)
+            case _ => Left(s"Cannot compare $leftTy with $rightTy")
+          }
+
+          case Timestamp | Timespan => if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
+          case _ => Left(s"Cannot use unordered type $leftTy in comparison")
+        }
+
+      case And | Or => leftTy match {
+        case Bool => rightTy match {
+          case Bool => Right(Bool)
+          case _ => Left(s"Cannot apply AND/OR to $rightTy")
+        }
+        case _ => Left(s"Cannot apply AND/OR to $leftTy")
+      }
 
       case In | NotIn => rightTy match {
         case Sequence(elementType) => leftTy match {
@@ -195,13 +221,28 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
     resultTy <- leftTy match {
       case Int => operator match {
         case Multiply => rightTy match {
-          case Int => Right(Int)
+          case Int | UnsignedInt => Right(Int)
           case Timespan => Right(Timespan)
-          case _ => Left(s"Cannot multiply int with $rightTy")
+          case _ => Left(s"Cannot multiply Int with $rightTy")
         }
         case _ => rightTy match {
-          case Int => Right(Int)
+          case Int | UnsignedInt => Right(Int)
           case _ => Left(s"Illegal operation between Int and $rightTy")
+        }
+      }
+
+      case UnsignedInt => operator match {
+        case Multiply => rightTy match {
+          case UnsignedInt => Right(UnsignedInt)
+          case Int => Right(Int)
+          case Timespan => Right(Timespan)
+          case _ => Left(s"Cannot multiply Uint with $rightTy")
+        }
+
+        case _ => rightTy match {
+          case UnsignedInt => Right(UnsignedInt)
+          case Int => Right(Int)
+          case _ => Left(s"Illegal operation between Uint and $rightTy")
         }
       }
 
@@ -226,7 +267,7 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case _ => Left(s"Illegal operation between Timespan and $rightTy")
         }
         case Multiply => rightTy match {
-          case Int => Right(Timespan)
+          case Int | UnsignedInt => Right(Timespan)
           case _ => Left(s"Illegal operation between Timespan and $rightTy")
         }
         case _ => Left(s"Illegal operation on Timespan")
@@ -255,14 +296,17 @@ sealed trait AuthExpression {
 sealed trait AuthTerm extends AuthExpression {
   def referencedAssignable: Assignable
 }
+
 case class IdentityRef(identity: Assignable) extends AuthTerm {
   override val basis = Set(this)
   override val referencedAssignable: Assignable = identity
 }
+
 case class AuthAny(collection: Assignable) extends AuthTerm {
   override val basis = Set(this)
   override val referencedAssignable: Assignable = collection
 }
+
 case class AuthAll(collection: Assignable) extends AuthTerm {
   override val basis = Set(this)
   override val referencedAssignable: Assignable = collection

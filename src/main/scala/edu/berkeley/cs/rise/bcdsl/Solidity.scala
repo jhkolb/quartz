@@ -26,10 +26,12 @@ object Solidity {
     ty match {
       case Identity => if (payable) "address payable" else "address"
       case Int => "int"
+      case UnsignedInt => "uint"
       case String => "bytes32"
       case Timestamp => "uint"
       case Bool => "bool"
       case Timespan => "uint"
+      case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
       case Mapping(keyType, valueType) => s"mapping(${writeType(keyType, payable)} => ${writeType(valueType, payable)})"
       case Sequence(elementType) => s"${writeType(elementType, payable)}[]"
       case Struct(name) => name
@@ -60,6 +62,7 @@ object Solidity {
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
       case StructAccess(struct, fieldName) => builder.append(s"${writeExpression(struct)}.${writeExpression(fieldName)}")
       case IntConst(v) => builder.append(v)
+      case UnsignedIntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b)
       case Second => builder.append("seconds")

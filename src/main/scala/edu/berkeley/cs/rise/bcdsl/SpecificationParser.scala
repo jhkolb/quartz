@@ -3,7 +3,7 @@ package edu.berkeley.cs.rise.bcdsl
 import scala.util.parsing.combinator.JavaTokenParsers
 
 object SpecificationParser extends JavaTokenParsers {
-  def stripQuotes(s: String): String = if (s.startsWith("\"") && s.endsWith("\"")) {
+  private def stripQuotes(s: String): String = if (s.startsWith("\"") && s.endsWith("\"")) {
     s.substring(1, s.length - 1)
   } else {
     s
@@ -11,6 +11,7 @@ object SpecificationParser extends JavaTokenParsers {
 
   def dataTypeDecl: Parser[DataType] = "Identity" ^^^ Identity |
     "Int" ^^^ Int |
+    "Uint" ^^^ UnsignedInt |
     "String" ^^^ String |
     "Timestamp" ^^^ Timestamp |
     "Timespan" ^^^ Timespan |
@@ -24,7 +25,7 @@ object SpecificationParser extends JavaTokenParsers {
   // TODO this could probably be cleaner...
   // Assumes that any mappingRef starts with an identifier
   def mappingRef: Parser[MappingRef] = ident ~ rep1("[" ~> logicalExpression <~ "]") ^^ {
-    case  root ~ (keyExpr::keyExprs) => keyExprs.foldLeft(MappingRef(VarRef(root), keyExpr)){ (ref, ke) => MappingRef(ref, ke) }
+    case root ~ (keyExpr :: keyExprs) => keyExprs.foldLeft(MappingRef(VarRef(root), keyExpr)) { (ref, ke) => MappingRef(ref, ke) }
     case _ ~ Nil => throw new IllegalStateException("rep1 combinator in 'mappingRef' yielded empty list")
   }
 
@@ -36,7 +37,8 @@ object SpecificationParser extends JavaTokenParsers {
     "minutes" ^^^ Minute |
     "hours" ^^^ Hour |
     "days" ^^^ Day |
-    wholeNumber ^^ { s => IntConst(s.toInt) } |
+    "[0-9]+".r ^^ { s => UnsignedIntConst(s.toInt) } |
+    "-?[0-9]+".r ^^ { s => IntConst(s.toInt) } |
     stringLiteral ^^ { s => StringLiteral(stripQuotes(s)) } |
     assignable
 
@@ -45,9 +47,10 @@ object SpecificationParser extends JavaTokenParsers {
   }
 
   def structAccessElem: Parser[Assignable] = mappingRef | ident ^^ VarRef
+
   def structAccess: Parser[StructAccess] = structAccessElem ~ "." ~ rep1sep(structAccessElem, ".") ^^ { case first ~ "." ~ rest =>
-      val root = StructAccess(first, rest.head)
-      rest.tail.foldLeft(root)((current, elem) => StructAccess(current, elem))
+    val root = StructAccess(first, rest.head)
+    rest.tail.foldLeft(root)((current, elem) => StructAccess(current, elem))
   }
 
   def assignable: Parser[Assignable] = structAccess | mappingRef | ident ^^ VarRef
@@ -110,7 +113,7 @@ object SpecificationParser extends JavaTokenParsers {
     { case "send" ~ amountExpr ~ "to" ~ destExpr ~ source => Send(destExpr, amountExpr, source) }
 
   def sendAndConsume: Parser[Send] = "sendAndConsume" ~ assignable ~ "to" ~ expression ^^
-    { case "sendAndConsume" ~ amount ~ "to" ~ destExpr => Send(destExpr, amount, Some(amount))}
+    { case "sendAndConsume" ~ amount ~ "to" ~ destExpr => Send(destExpr, amount, Some(amount)) }
 
   def sequenceAddition: Parser[SequenceAppend] = "add" ~ expression ~ "to" ~ expression ^^
     { case "add" ~ element ~ "to" ~ set => SequenceAppend(set, element) }
@@ -134,7 +137,7 @@ object SpecificationParser extends JavaTokenParsers {
   }
 
   def stateMachine: Parser[StateMachine] = rep(structDecl) ~ fieldList ~ rep(transition) ^^ { case structs ~ fields ~ transitions =>
-    val structMap = structs.map{ case (name, fields) => name -> fields }.toMap
+    val structMap = structs.map { case (name, fields) => name -> fields }.toMap
     StateMachine(structMap, fields, transitions)
   }
 
