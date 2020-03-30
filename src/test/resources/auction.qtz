@@ -2,7 +2,7 @@ contract Auction {
     data {
       Seller: Identity
       HighestBidder: Identity
-      HighestBid: Int
+      HighestBid: Uint
       AuctionStart: Timestamp
       Duration: Timespan
     }

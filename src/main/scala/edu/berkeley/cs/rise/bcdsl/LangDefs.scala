@@ -174,25 +174,11 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
     rightTy <- right.getType(context);
 
     resultTy <- operator match {
-      case Equal | NotEqual =>
+      case Equal | NotEqual | LessThan | LessThanOrEqual | GreaterThanOrEqual | GreaterThan =>
         leftTy match {
-          case Int | UnsignedInt => rightTy match {
-            case Int | UnsignedInt => Right(Bool)
-            case _ => Left(s"Cannot check instances of types $leftTy and $rightTy for equality")
-          }
-
-          case _ => if (leftTy != rightTy) Left(s"Cannot equals check $leftTy with $rightTy") else Right(Bool)
-        }
-
-      case LessThan | LessThanOrEqual | GreaterThanOrEqual | GreaterThan =>
-        leftTy match {
-          case Int | UnsignedInt => rightTy match {
-            case Int | UnsignedInt => Right(Bool)
-            case _ => Left(s"Cannot compare $leftTy with $rightTy")
-          }
-
-          case Timestamp | Timespan => if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
-          case _ => Left(s"Cannot use unordered type $leftTy in comparison")
+          case Int | UnsignedInt | Timestamp | Timespan =>
+            if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
+          case _ => Left(s"Cannot compare instances of $leftTy")
         }
 
       case And | Or => leftTy match {
@@ -221,12 +207,12 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
     resultTy <- leftTy match {
       case Int => operator match {
         case Multiply => rightTy match {
-          case Int | UnsignedInt => Right(Int)
+          case Int => Right(Int)
           case Timespan => Right(Timespan)
           case _ => Left(s"Cannot multiply Int with $rightTy")
         }
         case _ => rightTy match {
-          case Int | UnsignedInt => Right(Int)
+          case Int => Right(Int)
           case _ => Left(s"Illegal operation between Int and $rightTy")
         }
       }
@@ -234,14 +220,12 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
       case UnsignedInt => operator match {
         case Multiply => rightTy match {
           case UnsignedInt => Right(UnsignedInt)
-          case Int => Right(Int)
           case Timespan => Right(Timespan)
           case _ => Left(s"Cannot multiply Uint with $rightTy")
         }
 
         case _ => rightTy match {
           case UnsignedInt => Right(UnsignedInt)
-          case Int => Right(Int)
           case _ => Left(s"Illegal operation between Uint and $rightTy")
         }
       }

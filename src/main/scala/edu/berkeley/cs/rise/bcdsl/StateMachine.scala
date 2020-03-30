@@ -110,15 +110,15 @@ case class Transition(name: String, origin: Option[String], destination: String,
         case Send(sendDest, amount, source) => for (
           destTy <- sendDest.getType(localContext);
           amountTy <- amount.getType(localContext);
-          sourceTy <- source.fold(Right(Int): Either[String, DataType])(_.getType(localContext))
+          sourceTy <- source.fold(Right(UnsignedInt): Either[String, DataType])(_.getType(localContext))
         ) yield destTy match {
           case Identity =>
             amountTy match {
-              case Int | UnsignedInt => sourceTy match {
-                case Int | UnsignedInt => Right(Unit)
-                case _ => Left(makeTypeErrMsg(i, s"Expected send source of integer type but found $sourceTy"))
+              case UnsignedInt => sourceTy match {
+                case UnsignedInt => Right(Unit)
+                case _ => Left(makeTypeErrMsg(i, s"Expected send source of unsigned integer type but found $sourceTy"))
               }
-              case _ => Left(makeTypeErrMsg(i, s"Expected send amount of integer type but found $amountTy"))
+              case _ => Left(makeTypeErrMsg(i, s"Expected send amount of unsigned integer type but found $amountTy"))
             }
           case _ => Left(makeTypeErrMsg(i, s"Expected send destination of Identity type but found $destTy"))
         }

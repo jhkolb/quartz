@@ -11,7 +11,7 @@ contract StrictMultiSig {
         add newSigner to Signers
     }
 
-    sendDisbursement: open ->(recipient: Identity, amount: Int) open
+    sendDisbursement: open ->(recipient: Identity, amount: Uint) open
     authorized [ all Signers ]
     requires [ amount > 0 ] {
         sendAndConsume amount to recipient

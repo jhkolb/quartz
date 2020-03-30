@@ -2,10 +2,10 @@ contract Auction3 {
     data {
       Seller: Identity
       HighestBidder: Identity
-      HighestBid: Int
+      HighestBid: Uint
       AuctionStart: Timestamp
       Duration: Timespan
-      Balances: Mapping[Identity, Int]
+      Balances: Mapping[Identity, Uint]
     }
 
     initialize: ->(duration: Timespan) open {

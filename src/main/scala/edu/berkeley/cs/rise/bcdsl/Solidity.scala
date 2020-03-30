@@ -10,7 +10,7 @@ object Solidity {
     "balance" -> "balance",
     "now" -> "now",
     "sender" -> "msg.sender",
-    "tokens" -> "int(msg.value)",
+    "tokens" -> "msg.value",
   )
 
   private val BUILTIN_PARAMS: Set[String] = Set("tokens")
@@ -150,9 +150,9 @@ object Solidity {
         case None => writeLine(s"$destStr.transfer(uint(${writeExpression(amount)}));")
         case Some(s) =>
           val builder = new StringBuilder()
-          appendLine(builder, s"int __temporary = ${writeExpression(amount)};")
+          appendLine(builder, s"uint __temporary = ${writeExpression(amount)};")
           appendLine(builder, s"${writeExpression(s)} = ${writeExpression(s)} - __temporary;")
-          appendLine(builder, s"$destStr.transfer(uint(__temporary));")
+          appendLine(builder, s"$destStr.transfer(__temporary);")
           builder.toString()
       }
 
