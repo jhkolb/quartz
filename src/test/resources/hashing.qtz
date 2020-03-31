@@ -1,0 +1,17 @@
+contract Hashing {
+    data {
+      player: Identity
+      revealedAction: String
+      x: HashValue[Int, Uint]
+    }
+
+    initialAction: ->(nonce: Int, action: Uint) submitted {
+        player = sender
+        x = hash(nonce, action)
+    }
+
+    revealAction: submitted ->(nonce: Int, action: Uint) revealed
+    requires [ hash(nonce, action) == x ] {
+        revealedAction = action
+    }
+}

@@ -35,6 +35,7 @@ object PlusCal {
     case Timespan => "0..MAX_INT"
     case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
     case String => throw new NotImplementedError("Strings have infinite domain") // TODO
+    case HashValue(payloadTypes) => payloadTypes.map(t => s"(${writeDomain(t, structs)})").mkString("(", " \\X ", ")")
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
     case Struct(name) => "[" + structs(name).map { case (name, ty) => s"$name |-> ${writeDomain(ty, structs)}" }.mkString(", ") + "]"
     case Sequence(elementType) => s"[ x \\in 1..MAX_INT -> ${writeDomain(elementType, structs)} ]"
@@ -49,6 +50,7 @@ object PlusCal {
     case Bool => "FALSE"
     case Timespan => "0"
     case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
+    case HashValue(payloadTypes) => payloadTypes.map(t => writeZeroElement(t, structs)).mkString("<<", ", ", ">>")
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} |-> ${writeZeroElement(valueType, structs)} ]"
     case Sequence(_) => "<<>>"
     case Struct(name) =>
@@ -202,23 +204,25 @@ object PlusCal {
       writeLine(s"$varName[${effectiveParamReprs.mkString(", ")}] := FALSE;")
   }
 
-  private def writeExpression(expression: Expression): String = {
-    val builder = new StringBuilder()
+  private def writeExpression(expression: Expression): String =
     expression match {
-      case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
-      case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
-      case StructAccess(struct, field) => builder.append(s"${writeExpression(struct)}.${writeExpression(field)}")
-      case IntConst(v) => builder.append(v)
-      case UnsignedIntConst(v) => builder.append(v)
-      case StringLiteral(s) => builder.append("\"" + s + "\"")
-      case BoolConst(b) => builder.append(b.toString.toUpperCase)
-      case Second => builder.append("1")
-      case Minute => builder.append("60")
-      case Hour => builder.append("3600")
-      case Day => builder.append("86400")
-      case Week => builder.append("604800")
+      case VarRef(name) => RESERVED_NAME_TRANSLATIONS.getOrElse(name, name)
+      case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
+      case StructAccess(struct, field) => s"${writeExpression(struct)}.${writeExpression(field)}"
+      case IntConst(v) => v.toString
+      case UnsignedIntConst(v) => v.toString
+      case StringLiteral(s) => "\"" + s + "\""
+      case BoolConst(b) => b.toString.toUpperCase
+      case Hash(payload) => payload.map(writeExpression).mkString("<<", ", ", ">>")
+      case SequenceSize(sequence) => s"Len(${writeExpression(sequence)})"
+      case Second => "1"
+      case Minute => "60"
+      case Hour => "3600"
+      case Day => "86400"
+      case Week => "604800"
 
       case ArithmeticOperation(left, op, right) =>
+        val builder = new StringBuilder()
         left match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
@@ -238,7 +242,10 @@ object PlusCal {
           case _ => builder.append(writeExpression(right))
         }
 
+        builder.toString()
+
       case LogicalOperation(element, op@(In | NotIn), sequence) =>
+        val builder = new StringBuilder()
         if (op == NotIn) {
           builder.append("~(")
         }
@@ -247,8 +254,10 @@ object PlusCal {
         if (op == NotIn) {
           builder.append(")")
         }
+        builder.toString()
 
       case LogicalOperation(left, op, right) =>
+        val builder = new StringBuilder()
         left match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
@@ -273,10 +282,7 @@ object PlusCal {
           case _ => builder.append(writeExpression(right))
         }
 
-      case SequenceSize(sequence) => builder.append(s"Len(${writeExpression(sequence)})")
-    }
-
-    builder.toString()
+        builder.toString()
   }
 
   private def writeStatement(statement: Statement, lineTerminator: String): String = statement match {

@@ -125,23 +125,25 @@ object TLA {
   }
 
   // TODO deal with code duplication between this and PlusCal
-  private def writeExpression(expression: Expression): String = {
-    val builder = new StringBuilder()
+  private def writeExpression(expression: Expression): String =
     expression match {
-      case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
-      case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
-      case StructAccess(struct, field) => builder.append(s"${writeExpression(struct)}.${writeExpression(field)}")
-      case IntConst(v) => builder.append(v)
-      case UnsignedIntConst(v) => builder.append(v)
-      case StringLiteral(s) => builder.append("\"" + s + "\"")
-      case BoolConst(b) => builder.append(b.toString.toUpperCase)
-      case Second => builder.append("1")
-      case Minute => builder.append("60")
-      case Hour => builder.append("3600")
-      case Day => builder.append("86400")
-      case Week => builder.append("604800")
+      case VarRef(name) => RESERVED_NAME_TRANSLATIONS.getOrElse(name, name)
+      case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
+      case StructAccess(struct, field) => s"${writeExpression(struct)}.${writeExpression(field)}"
+      case IntConst(v) => v.toString
+      case UnsignedIntConst(v) => v.toString
+      case StringLiteral(s) => "\"" + s + "\""
+      case BoolConst(b) => b.toString.toUpperCase
+      case Hash(payload) => payload.map(writeExpression).mkString("<<", ", ", ">>")
+      case SequenceSize(sequence) => s"Len(${writeExpression(sequence)})"
+      case Second => "1"
+      case Minute => "60"
+      case Hour => "3600"
+      case Day => "86400"
+      case Week => "604800"
 
       case ArithmeticOperation(left, op, right) =>
+        val builder = new StringBuilder()
         left match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
@@ -161,7 +163,10 @@ object TLA {
           case _ => builder.append(writeExpression(left))
         }
 
-      case LogicalOperation(element, op @ (In | NotIn), sequence) =>
+        builder.toString()
+
+      case LogicalOperation(element, op@(In | NotIn), sequence) =>
+        val builder = new StringBuilder()
         if (op == NotIn) {
           builder.append("~(")
         }
@@ -170,8 +175,10 @@ object TLA {
         if (op == NotIn) {
           builder.append(")")
         }
+        builder.toString()
 
       case LogicalOperation(left, op, right) =>
+        val builder = new StringBuilder()
         left match {
           case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
           case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
@@ -196,9 +203,6 @@ object TLA {
           case _ => builder.append(writeExpression(right))
         }
 
-      case SequenceSize(sequence) => builder.append(s"Len(${writeExpression(sequence)})")
+        builder.toString()
     }
-
-    builder.toString()
-  }
 }

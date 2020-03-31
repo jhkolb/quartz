@@ -127,4 +127,9 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
     val spec = parseFile("unsigned.qtz")
     testSpecification(spec)
   }
+
+  test("Simple hash-based commitment scheme") {
+    val spec = parseFile("hashing.qtz")
+    testSpecification(spec)
+  }
 }

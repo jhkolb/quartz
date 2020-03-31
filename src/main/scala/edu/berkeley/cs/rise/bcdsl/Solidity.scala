@@ -31,6 +31,7 @@ object Solidity {
       case Timestamp => "uint"
       case Bool => "bool"
       case Timespan => "uint"
+      case HashValue(_) => "bytes32"
       case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
       case Mapping(keyType, valueType) => s"mapping(${writeType(keyType, payable)} => ${writeType(valueType, payable)})"
       case Sequence(elementType) => s"${writeType(elementType, payable)}[]"
@@ -65,6 +66,7 @@ object Solidity {
       case UnsignedIntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b)
+      case Hash(payload) => builder.append(payload.map(writeExpression).mkString("keccak256(abi.encodePacked(", ",", "))"))
       case Second => builder.append("seconds")
       case Minute => builder.append("minutes")
       case Hour => builder.append("hours")

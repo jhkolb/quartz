@@ -18,6 +18,7 @@ object SpecificationParser extends JavaTokenParsers {
     "Bool" ^^^ Bool |
     "Mapping" ~ "[" ~> dataTypeDecl ~ "," ~ dataTypeDecl <~ "]" ^^ { case keyType ~ "," ~ valueType => Mapping(keyType, valueType) } |
     "Sequence" ~ "[" ~> dataTypeDecl <~ "]" ^^ (elementType => Sequence(elementType)) |
+    "HashValue" ~ "[" ~> rep1sep(dataTypeDecl, ",") <~ "]" ^^ HashValue |
     ident ^^ Struct
 
   def variableDecl: Parser[Variable] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Variable(name, ty) }
@@ -41,6 +42,8 @@ object SpecificationParser extends JavaTokenParsers {
     "-?[0-9]+".r ^^ { s => IntConst(s.toInt) } |
     stringLiteral ^^ { s => StringLiteral(stripQuotes(s)) } |
     assignable
+
+  def hashApplication: Parser[Hash] = "hash" ~ "(" ~> rep1sep(expression, ",") <~ ")" ^^ Hash
 
   def structDecl: Parser[(String, Map[String, DataType])] = "struct" ~> ident ~ "{" ~ rep(variableDecl) <~ "}" ^^ { case name ~ "{" ~ fields =>
     (name, fields.map(f => f.name -> f.ty).toMap)
@@ -72,7 +75,7 @@ object SpecificationParser extends JavaTokenParsers {
 
   def sequenceSize: Parser[SequenceSize] = "size" ~ "(" ~> expression <~ ")" ^^ SequenceSize
 
-  def factor: Parser[Expression] = sequenceSize | valueDecl | "(" ~> expression <~ ")"
+  def factor: Parser[Expression] = sequenceSize | hashApplication | valueDecl | "(" ~> expression <~ ")"
 
   def term: Parser[Expression] = chainl1(factor, multDiv ^^
     (op => (left: Expression, right: Expression) => ArithmeticOperation(left, op, right)))

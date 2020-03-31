@@ -9,8 +9,19 @@ case object Timestamp extends DataType
 case object Bool extends DataType
 case object Timespan extends DataType
 case object Unit extends DataType
-case class Mapping(keyType: DataType, valueType: DataType) extends DataType
-case class Sequence(elementType: DataType) extends DataType
+
+case class HashValue(payloadTypes: Seq[DataType]) extends DataType {
+  override def toString: String = s"HashValue[${payloadTypes.mkString(", ")}]"
+}
+
+case class Mapping(keyType: DataType, valueType: DataType) extends DataType {
+  override def toString: String = s"Mapping[$keyType, $valueType]"
+}
+
+case class Sequence(elementType: DataType) extends DataType {
+  override def toString: String = s"Sequence[$elementType]"
+}
+
 case class Struct(name: String) extends DataType
 
 case class Context(structs: Map[String, Map[String, DataType]], variables: Map[String, DataType])
@@ -58,13 +69,34 @@ case class BoolConst(value: Boolean) extends Expression {
   override def determineType(context: Context): Either[String, DataType] = Right(Bool)
 }
 
+case class Hash(payload: Seq[Expression]) extends Expression {
+  override protected def determineType(context: Context): Either[String, DataType] =
+    // Determine type of each payload element, return first error encountered
+    // If no type errors, yield a list of data types
+    // Probably a fancy functional way to do this with the equivalent of Haskell's `sequence`
+    payload.map(_.getType(context)).foldLeft(Right(Seq.empty[DataType]): Either[String, Seq[DataType]]) {
+      case (previous, current) =>
+        previous match {
+          case l@Left(_) => l
+          case Right(prevTypes) => current match {
+            case l@Left(_) => l.asInstanceOf[Either[String, Seq[DataType]]]
+            case Right(ty) => Right(prevTypes :+ ty)
+          }
+        }
+    } match {
+      case l@Left(_) => l.asInstanceOf[Either[String, DataType]]
+      case Right(payloadTypes) => Right(HashValue(payloadTypes))
+    }
+}
+
+
 sealed trait Assignable extends Expression {
   def rootName: String
 }
 
 case class VarRef(name: String) extends Assignable {
   override def determineType(context: Context): Either[String, DataType] = context.variables.get(name) match {
-    case None => Left(s"Undefined field $name")
+    case None => Left(s"Undefined variable $name")
     case Some(ty) => Right(ty)
   }
 
@@ -174,12 +206,17 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
     rightTy <- right.getType(context);
 
     resultTy <- operator match {
-      case Equal | NotEqual | LessThan | LessThanOrEqual | GreaterThanOrEqual | GreaterThan =>
-        leftTy match {
-          case Int | UnsignedInt | Timestamp | Timespan =>
-            if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
-          case _ => Left(s"Cannot compare instances of $leftTy")
-        }
+      case Equal | NotEqual => leftTy match {
+        case Int | UnsignedInt | Timestamp | Timespan | Identity | Bool | Sequence(_) | String | Struct(_) | HashValue(_) =>
+          if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
+        case _ => Left(s"Cannot determine equality for instances of $leftTy")
+      }
+
+      case LessThan | LessThanOrEqual | GreaterThanOrEqual | GreaterThan => leftTy match {
+        case Int | UnsignedInt | Timestamp | Timespan =>
+          if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
+        case _ => Left(s"Cannot compare instances of unordered type $leftTy")
+      }
 
       case And | Or => leftTy match {
         case Bool => rightTy match {
