@@ -1,0 +1,21 @@
+contract StructParam {
+    struct A {
+        x: Int
+        w: Identity
+    }
+
+    data {
+        owner: Identity
+        i: Int
+    }
+
+    initialize: ->configured {
+        owner = sender
+        i = 0
+    }
+
+    modify: configured ->(p: A) modified
+    requires [ p.w == owner ] {
+        i = p.x
+    }
+}

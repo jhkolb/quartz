@@ -37,7 +37,7 @@ object PlusCal {
     case String => throw new NotImplementedError("Strings have infinite domain") // TODO
     case HashValue(payloadTypes) => payloadTypes.map(t => s"(${writeDomain(t, structs)})").mkString("(", " \\X ", ")")
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
-    case Struct(name) => "[" + structs(name).map { case (name, ty) => s"$name |-> ${writeDomain(ty, structs)}" }.mkString(", ") + "]"
+    case Struct(name) => "[" + structs(name).map { case (name, ty) => s"$name: ${writeDomain(ty, structs)}" }.mkString(", ") + "]"
     case Sequence(elementType) => s"[ x \\in 1..MAX_INT -> ${writeDomain(elementType, structs)} ]"
   }
 
