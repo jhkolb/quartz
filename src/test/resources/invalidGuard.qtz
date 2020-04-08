@@ -1,0 +1,14 @@
+contract InvalidGuard {
+    data {
+      foo: Int
+    }
+
+    initialize: ->configured {
+        foo = 4
+    }
+
+    modify: configured ->modified
+    requires [ foo ] {
+        foo = 8
+    }
+}

@@ -6,7 +6,7 @@ case class Transition(name: String, origin: Option[String], destination: String,
                       authorized: Option[AuthExpression], auto: Boolean, guard: Option[Expression], body: Option[Seq[Statement]]) {
   val description: String = s"$name: '${origin.getOrElse("")}' -> '$destination'"
 
-  private def makeTypeErrMsg(idx: Int, msg: String): String =
+  private def makeTypeErrMsg(idx: scala.Int, msg: String): String =
     s"Type error on statement ${idx + 1} of transition $description: $msg"
 
   // Assign a unique name to each term in the transition's authorization clause
@@ -21,33 +21,38 @@ case class Transition(name: String, origin: Option[String], destination: String,
     }
   }
 
+  // There is probably a much nicer way to structure this logic
   def validate(context: Context): Option[String] = {
     val paramsMap = parameters.fold(Map.empty[String, DataType]) { params =>
       params.map(variable => variable.name -> variable.ty).toMap
     }
     // Check that transition parameters do not shadow previously defined variables
-    paramsMap.keySet.intersect(context.variables.keySet).headOption.foreach { shadowed =>
-      return Some(s"Transition $description shadows field or keyword $shadowed")
+    val shadowedParams = paramsMap.keySet.intersect(context.variables.keySet).headOption
+    if (shadowedParams.isDefined) {
+      return Some(s"Transition $description shadows field or keyword ${shadowedParams.get}")
     }
+
     // Check that all structs used as parameter types are well defined
-    paramsMap.values.find {
-      case Struct(name) => context.structs.get(name).isEmpty
-      case _ => false
-    }.foreach { ty =>
-      return Some(s"Transition $description has parameter of undefined struct type ${ty.asInstanceOf[Struct].name}")
+    val undefinedStructName = paramsMap.values.collect{ case Struct(name) => name }.find(!context.structs.contains(_))
+    if (undefinedStructName.isDefined) {
+      return Some(s"Transition $description has parameter of undefined struct type ${undefinedStructName.get}")
     }
 
     // And check that any constrained parameters are of the correct type
     val constrainedNames = paramsMap.keySet.intersect(Specification.CONSTRAINED_PARAMS.keySet)
-    constrainedNames.foreach { name =>
+    val nameError = constrainedNames.flatMap { name =>
       val actualTy = paramsMap(name)
       val expectedTy = Specification.CONSTRAINED_PARAMS(name)
       if (actualTy != expectedTy) {
-        return Some(s"Special parameter $name is of type $actualTy when it must be of type $expectedTy")
+        Some(s"Special parameter $name is of type $actualTy when it must be of type $expectedTy")
+      } else {
+        None
       }
+    }.headOption
+    if (nameError.isDefined) {
+      return nameError
     }
 
-    val localContext = Context(context.structs, context.variables ++ paramsMap)
     // Check that transition is not designated as automatic but has an authorization restriction
     if (auto && authorized.isDefined) {
       return Some(s"Automatic transition $description cannot have authorization restriction")
@@ -57,92 +62,28 @@ case class Transition(name: String, origin: Option[String], destination: String,
       return Some(s"Automatic transition $description lacks a guard")
     }
 
+    val localContext = Context(context.structs, context.variables ++ paramsMap)
+
     // Check that transition guard is correctly typed
-    for (expr <- guard) {
-      expr.getType(localContext) match {
-        case Left(err) => return Some(s"Invalid guard in transition $description: $err")
-        case Right(Bool) => ()
-        case Right(ty) => return Some(s"Guard in transition $description is of non-boolean type $ty")
-      }
+    guard.fold(Right(Bool): Either[String, DataType])(_.getType(localContext)) match {
+      case Left(err) => return Some(s"Invalid guard in transition $description: $err")
+      case Right(Bool) => ()
+      case Right(ty) => return Some(s"Guard in transition $description is of non-boolean type $ty")
     }
 
     // Check that authorization clause does not reference undefined identities or invalid types
-    for (term <- authorized.fold(Set.empty[AuthTerm])(_.basis)) {
-      term match {
-        case IdentityRef(identity) => identity.getType(context) match {
-          case Right(Identity) => ()
-          case Right(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
-          case Left(err) => return Some(err)
-        }
-
-        case AuthAny(collection) => collection.getType(context) match {
-          case Right(Sequence(Identity)) => ()
-          case Right(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
-          case Left(err) => return Some(err)
-        }
-
-        case AuthAll(collection) => collection.getType(context) match {
-          case Right(Sequence(Identity)) => ()
-          case Right(ty) => return Some(s"Transition $description references invalid type $ty in authorization clause")
-          case Left(err) => return Some(err)
-        }
-      }
+    val authErr = authorized.fold(None: Option[String])(_.validate(context))
+    if (authErr.isDefined) {
+      return authErr.map(err =>  s"$description: $err")
     }
 
     // Type check all transition body statements
-    for ((statement, i) <- body.getOrElse(Seq.empty[Statement]).zipWithIndex) {
-      val stTy = statement match {
-        case Assignment(lhs, rhs) => for (
-          leftTy <- lhs.getType(localContext);
-          rightTy <- rhs.getType(localContext)
-        ) yield leftTy match {
-          case Int => rightTy match {
-            case Int | UnsignedInt => Right(Unit)
-            case _ => Left(makeTypeErrMsg(i, s"Left-hand type $leftTy not compatible with right-hand type $rightTy"))
-          }
-
-          case _ =>
-            if (leftTy != rightTy)
-              Left(makeTypeErrMsg(i, s"Left-hand type $leftTy not compatible with right-hand type $rightTy"))
-            else Right(Unit)
-        }
-
-        case Send(sendDest, amount, source) => for (
-          destTy <- sendDest.getType(localContext);
-          amountTy <- amount.getType(localContext);
-          sourceTy <- source.fold(Right(UnsignedInt): Either[String, DataType])(_.getType(localContext))
-        ) yield destTy match {
-          case Identity =>
-            amountTy match {
-              case UnsignedInt => sourceTy match {
-                case UnsignedInt => Right(Unit)
-                case _ => Left(makeTypeErrMsg(i, s"Expected send source of unsigned integer type but found $sourceTy"))
-              }
-              case _ => Left(makeTypeErrMsg(i, s"Expected send amount of unsigned integer type but found $amountTy"))
-            }
-          case _ => Left(makeTypeErrMsg(i, s"Expected send destination of Identity type but found $destTy"))
-        }
-
-        case SequenceAppend(sequence, element) => for (
-          sequenceTy <- sequence.getType(localContext);
-          elementTy <- element.getType(localContext)
-        ) yield sequenceTy match {
-          case Sequence(t) =>
-            if (t == elementTy) Right(Unit)
-            else Left(s"Cannot append instance of $elementTy to sequence of $t instances")
-
-          case t => Left(s"Cannot append to non-sequence type $t")
-        }
-
-        case SequenceClear(sequence) => sequence.getType(localContext) match {
-          case Right(Sequence(_)) => Right(Unit)
-          case Right(t) => Left(s"Cannot clear non-sequence type $t")
-          case err@Left(_) => err
-        }
+    body.fold(None: Option[String])(b => b.zipWithIndex.foldLeft(None: Option[String]) { case (prev, (current, i)) =>
+      prev match {
+        case s@Some(_) => s
+        case None => current.validate(localContext).map(makeTypeErrMsg(i, _))
       }
-      stTy.left.foreach(msg => return Some(msg))
-    }
-    None
+    })
   }
 
   def flattenExpressions(): Seq[Expression] = {
@@ -164,18 +105,16 @@ case class StateMachine(structs: Map[String, Map[String, DataType]], fields: Seq
 
   def validate(): Option[String] = {
     // Check that no fields shadow a reserved value
-    fields.map(_.name).toSet.intersect(Specification.RESERVED_VALUES.keySet).headOption.foreach { name =>
-      return Some(s"State machine field $name shadows reserved value")
+    val shadowField = fields.map(_.name).toSet.intersect(Specification.RESERVED_VALUES.keySet).headOption
+    if (shadowField.isDefined) {
+      return Some(s"State machine field ${shadowField.get} shadows reserved value")
     }
 
     // Check that all struct types used in fields and transitions are defined
-    fields.find {
-      _.ty match {
-        case Struct(structName) => structs.get(structName).isEmpty
-        case _ => false
-      }
-    }.foreach { f =>
-      return Some(s"State machine field ${f.name} is of undefined struct type")
+    // Check that all structs used as parameter types are well defined
+    val undefinedStructName = fields.map(_.ty).collect { case Struct(name) => name }.find(!structs.contains(_))
+    if (undefinedStructName.isDefined) {
+      return Some(s"State machine has field of undefined struct type ${undefinedStructName.get}")
     }
 
     // Check that only one transition is missing a source, this indicates the initial state
@@ -211,15 +150,12 @@ case class StateMachine(structs: Map[String, Map[String, DataType]], fields: Seq
       return Some("Unreachable states: " + unreachableStates.mkString(", "))
     }
 
+    // Finally, validate all transitions
     val varContext = fields.foldLeft(Specification.RESERVED_VALUES) { (ctx, field) =>
       ctx + (field.name -> field.ty)
     }
     val context = Context(structs, varContext)
-    for (transition <- transitions) {
-      transition.validate(context).foreach(err => return Some(err))
-    }
-
-    None
+    transitions.flatMap(_.validate(context)).headOption
   }
 
   def flattenExpressions: Seq[Expression] = transitions.flatMap(_.flattenExpressions())

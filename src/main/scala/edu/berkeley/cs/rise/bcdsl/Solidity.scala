@@ -25,14 +25,15 @@ object Solidity {
   private def writeType(ty: DataType, payable: Boolean): String =
     ty match {
       case Identity => if (payable) "address payable" else "address"
-      case Int => "int"
-      case UnsignedInt => "uint"
+      case IntVar => "int"
+      case IntConst => throw new UnsupportedOperationException("Write type of int const")
+      case UnsignedIntVar => "uint"
+      case UnsignedIntConst => throw new UnsupportedOperationException("Write type of unsigned int const")
       case String => "bytes32"
       case Timestamp => "uint"
       case Bool => "bool"
       case Timespan => "uint"
       case HashValue(_) => "bytes32"
-      case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
       case Mapping(keyType, valueType) => s"mapping(${writeType(keyType, payable)} => ${writeType(valueType, payable)})"
       case Sequence(elementType) => s"${writeType(elementType, payable)}[]"
       case Struct(name) => name
@@ -344,7 +345,7 @@ object Solidity {
       }
     }
 
-  private def writeAuthClause(transition: Transition, term: AuthExpression, depth: Int = 0): String = {
+  private def writeAuthClause(transition: Transition, term: AuthExpression, depth: scala.Int = 0): String = {
     val builder = new StringBuilder()
     term match {
       case t: AuthTerm => t match {

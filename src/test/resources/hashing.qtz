@@ -1,7 +1,7 @@
 contract Hashing {
     data {
       player: Identity
-      revealedAction: String
+      revealedAction: Uint
       x: HashValue[Int, Uint]
     }
 

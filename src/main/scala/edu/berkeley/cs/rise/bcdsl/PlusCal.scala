@@ -28,12 +28,13 @@ object PlusCal {
 
   private def writeDomain(ty: DataType, structs: StructRegistry): String = ty match {
     case Identity => "IDENTITIES \\ {ZERO_IDENT}"
-    case Int => "MIN_INT..MAX_INT"
-    case UnsignedInt => "0..MAX_INT"
+    case IntVar => "MIN_INT..MAX_INT"
+    case IntConst => throw new UnsupportedOperationException("Write domain of int constant")
+    case UnsignedIntVar => "0..MAX_INT"
+    case UnsignedIntConst => throw new UnsupportedOperationException("Write domain of unsigned int constant")
     case Bool => "{ TRUE, FALSE }"
     case Timestamp => "0..MAX_INT"
     case Timespan => "0..MAX_INT"
-    case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
     case String => throw new NotImplementedError("Strings have infinite domain") // TODO
     case HashValue(payloadTypes) => payloadTypes.map(t => s"(${writeDomain(t, structs)})").mkString("(", " \\X ", ")")
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
@@ -43,13 +44,14 @@ object PlusCal {
 
   private def writeZeroElement(ty: DataType, structs: StructRegistry): String = ty match {
     case Identity => "ZERO_IDENT"
-    case Int => "0"
-    case UnsignedInt => "0"
+    case IntVar => "0"
+    case IntConst => throw new UnsupportedOperationException("Write zero value of int constant")
+    case UnsignedIntVar => "0"
+    case UnsignedIntConst => throw new UnsupportedOperationException("Write zero value of unsigned int const")
     case String => "\"\""
     case Timestamp => "0"
     case Bool => "FALSE"
     case Timespan => "0"
-    case Unit => throw new UnsupportedOperationException("Unit type is for internal use only")
     case HashValue(payloadTypes) => payloadTypes.map(t => writeZeroElement(t, structs)).mkString("<<", ", ", ">>")
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} |-> ${writeZeroElement(valueType, structs)} ]"
     case Sequence(_) => "<<>>"
@@ -141,7 +143,7 @@ object PlusCal {
     builder.toString()
   }
 
-  private def writeAuthClause(transition: Transition, term: AuthExpression, depth: Int = 0): String = {
+  private def writeAuthClause(transition: Transition, term: AuthExpression, depth: scala.Int = 0): String = {
     val builder = new StringBuilder()
     term match {
       case t: AuthTerm => t match {
@@ -434,7 +436,7 @@ object PlusCal {
       appendLine(builder, s"$CURRENT_STATE_VAR := ${transition.destination.toUpperCase};")
     }
     // Add incoming funds to token balance
-    if (transition.parameters.getOrElse(Seq.empty[Variable]).contains(Variable("tokens", Int))) {
+    if (transition.parameters.getOrElse(Seq.empty[Variable]).contains(Variable("tokens", IntVar))) {
       appendLine(builder, "balance := balance + tokens;")
     }
     transition.body.foreach(b => builder.append(writeTransitionBody(b)))

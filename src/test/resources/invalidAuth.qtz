@@ -1,0 +1,14 @@
+contract InvalidAuth {
+    data {
+      foo: Int
+    }
+
+    initialize: ->configured {
+        foo = 4
+    }
+
+    modify: configured ->modified
+    authorized [ foo ] {
+        foo = 8
+    }
+}

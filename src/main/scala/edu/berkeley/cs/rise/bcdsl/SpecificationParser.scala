@@ -10,8 +10,8 @@ object SpecificationParser extends JavaTokenParsers {
   }
 
   def dataTypeDecl: Parser[DataType] = "Identity" ^^^ Identity |
-    "Int" ^^^ Int |
-    "Uint" ^^^ UnsignedInt |
+    "Int" ^^^ IntVar |
+    "Uint" ^^^ UnsignedIntVar |
     "String" ^^^ String |
     "Timestamp" ^^^ Timestamp |
     "Timespan" ^^^ Timespan |
@@ -39,7 +39,7 @@ object SpecificationParser extends JavaTokenParsers {
     "hours" ^^^ Hour |
     "days" ^^^ Day |
     "[0-9]+".r ^^ { s => UnsignedIntConst(s.toInt) } |
-    "-?[0-9]+".r ^^ { s => IntConst(s.toInt) } |
+    "-[0-9]+".r ^^ { s => IntConst(s.toInt) } |
     stringLiteral ^^ { s => StringLiteral(stripQuotes(s)) } |
     assignable
 

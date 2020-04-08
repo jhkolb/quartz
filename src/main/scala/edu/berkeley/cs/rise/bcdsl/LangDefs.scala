@@ -2,13 +2,18 @@ package edu.berkeley.cs.rise.bcdsl
 
 sealed trait DataType
 case object Identity extends DataType
-case object Int extends DataType
-case object UnsignedInt extends DataType
 case object String extends DataType
 case object Timestamp extends DataType
 case object Bool extends DataType
 case object Timespan extends DataType
-case object Unit extends DataType
+
+sealed trait Int extends DataType
+case object IntVar extends Int
+case object IntConst extends Int
+
+sealed trait UnsignedInt extends DataType
+case object UnsignedIntVar extends UnsignedInt
+case object UnsignedIntConst extends UnsignedInt
 
 case class HashValue(payloadTypes: Seq[DataType]) extends DataType {
   override def toString: String = s"HashValue[${payloadTypes.mkString(", ")}]"
@@ -50,14 +55,14 @@ sealed abstract class Typed {
 
 sealed trait Expression extends Typed
 
-case class IntConst(value: Int) extends Expression {
-  override def determineType(context: Context): Either[String, DataType] = Right(Int)
+case class IntConst(value: scala.Int) extends Expression {
+  override def determineType(context: Context): Either[String, DataType] = Right(IntConst)
 }
 
-case class UnsignedIntConst(value: Int) extends Expression {
+case class UnsignedIntConst(value: scala.Int) extends Expression {
   override def determineType(context: Context): Either[String, DataType] = {
     assert(value >= 0)
-    Right(UnsignedInt)
+    Right(UnsignedIntConst)
   }
 }
 
@@ -106,14 +111,27 @@ case class VarRef(name: String) extends Assignable {
 case class MappingRef(map: Expression, key: Expression) extends Assignable {
   override def determineType(context: Context): Either[String, DataType] = map.getType(context) match {
     case Left(msg) => Left(s"Invalid mapping type: $msg")
+
     case Right(Mapping(keyType, valueType)) => key.getType(context) match {
       case Left(err) => Left(s"Type error in map key expression: $err")
+
+      case Right(IntVar) | Right(IntConst) => keyType match {
+        case IntVar => Right(valueType)
+        case _ => Left(s"Expected map key of type $keyType but found expression of type Int")
+      }
+
+      case Right(UnsignedIntConst) => keyType match {
+        case IntVar | UnsignedIntVar => Right(valueType)
+        case _ => Left(s"Expected map key of type $keyType but found expression of type unsigned int")
+      }
+
       case Right(ty) => if (keyType == ty) {
         Right(valueType)
       } else {
         Left(s"Expected map key of type $keyType but found expression of type $ty")
       }
     }
+
     case Right(ty) => Left(s"Cannot perform key lookup on non-map type $ty")
   }
 
@@ -207,14 +225,36 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
 
     resultTy <- operator match {
       case Equal | NotEqual => leftTy match {
-        case Int | UnsignedInt | Timestamp | Timespan | Identity | Bool | Sequence(_) | String | Struct(_) | HashValue(_) =>
+        case IntVar | IntConst => rightTy match {
+          case IntVar | IntConst | UnsignedIntConst => Right(Bool)
+          case _ => Left(s"Cannot compare $leftTy with $rightTy")
+        }
+
+        case UnsignedIntVar | UnsignedIntConst => rightTy match {
+          case UnsignedIntVar | UnsignedIntConst => Right(Bool)
+          case _ => Left(s"Cannot compare $leftTy with $rightTy")
+        }
+
+        case Timestamp | Timespan | Identity | Bool | Sequence(_) | String | Struct(_) | HashValue(_) =>
           if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
+
         case _ => Left(s"Cannot determine equality for instances of $leftTy")
       }
 
       case LessThan | LessThanOrEqual | GreaterThanOrEqual | GreaterThan => leftTy match {
-        case Int | UnsignedInt | Timestamp | Timespan =>
+        case IntConst | IntVar => rightTy match {
+          case IntConst | IntVar| UnsignedIntConst | UnsignedIntVar => Right(Bool)
+          case _ => Left(s"Cannot compare instances of $leftTy and $rightTy")
+        }
+
+        case UnsignedIntConst | UnsignedIntVar => rightTy match {
+          case UnsignedIntConst | UnsignedIntVar => Right(Bool)
+          case _ => Left(s"Cannot compare instances of $leftTy and $rightTy")
+        }
+
+        case Timestamp | Timespan =>
           if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
+
         case _ => Left(s"Cannot compare instances of unordered type $leftTy")
       }
 
@@ -242,28 +282,57 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
     leftTy <- left.getType(context);
     rightTy <- right.getType(context);
     resultTy <- leftTy match {
-      case Int => operator match {
+      case IntConst => operator match {
         case Multiply => rightTy match {
-          case Int => Right(Int)
+          case IntConst => Right(IntConst)
+          case IntVar => Right(IntVar)
           case Timespan => Right(Timespan)
-          case _ => Left(s"Cannot multiply Int with $rightTy")
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
         case _ => rightTy match {
-          case Int => Right(Int)
-          case _ => Left(s"Illegal operation between Int and $rightTy")
+          case IntConst => Right(IntConst)
+          case IntVar => Right(IntVar)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
       }
 
-      case UnsignedInt => operator match {
+      case IntVar => operator match {
         case Multiply => rightTy match {
-          case UnsignedInt => Right(UnsignedInt)
+          case IntConst | IntVar => Right(IntVar)
           case Timespan => Right(Timespan)
-          case _ => Left(s"Cannot multiply Uint with $rightTy")
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
 
         case _ => rightTy match {
-          case UnsignedInt => Right(UnsignedInt)
-          case _ => Left(s"Illegal operation between Uint and $rightTy")
+          case IntConst | IntVar => Right(IntVar)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
+      }
+
+      case UnsignedIntConst => operator match {
+        case Multiply => rightTy match {
+          case UnsignedIntConst => Right(UnsignedIntConst)
+          case UnsignedIntVar => Right(UnsignedIntVar)
+          case Timespan => Right(Timespan)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
+        case _ => rightTy match {
+          case UnsignedIntConst => Right(UnsignedIntConst)
+          case UnsignedIntVar => Right(UnsignedIntVar)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
+      }
+
+      case UnsignedIntVar => operator match {
+        case Multiply => rightTy match {
+          case UnsignedIntConst | UnsignedIntVar => Right(UnsignedIntVar)
+          case Timespan => Right(Timespan)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
+
+        case _ => rightTy match {
+          case UnsignedIntConst | UnsignedIntVar => Right(UnsignedIntVar)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
       }
 
@@ -288,7 +357,7 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case _ => Left(s"Illegal operation between Timespan and $rightTy")
         }
         case Multiply => rightTy match {
-          case Int | UnsignedInt => Right(Timespan)
+          case IntVar | IntConst | UnsignedIntVar | UnsignedIntConst => Right(Timespan)
           case _ => Left(s"Illegal operation between Timespan and $rightTy")
         }
         case _ => Left(s"Illegal operation on Timespan")
@@ -303,7 +372,7 @@ case class SequenceSize(sequence: Expression) extends Expression {
   override def determineType(context: Context): Either[String, DataType] =
     sequence.getType(context) match {
       case err@Left(_) => err
-      case Right(Sequence(_)) => Right(Int)
+      case Right(Sequence(_)) => Right(UnsignedIntConst)
       case Right(ty) => Left(s"Cannot compute size of non-sequence type $ty")
     }
 }
@@ -312,6 +381,7 @@ case class LTLProperty(operator: LTLOperator, body: Either[LTLProperty, Expressi
 
 sealed trait AuthExpression {
   def basis: Set[AuthTerm]
+  def validate(context: Context): Option[String]
 }
 
 sealed trait AuthTerm extends AuthExpression {
@@ -321,24 +391,116 @@ sealed trait AuthTerm extends AuthExpression {
 case class IdentityRef(identity: Assignable) extends AuthTerm {
   override val basis = Set(this)
   override val referencedAssignable: Assignable = identity
+
+  def validate(context: Context): Option[String] = identity.getType(context) match {
+    case Left(err) => Some(err)
+    case Right(Identity) => None
+    case Right(t) => Some(s"Authorization refers to non-identity type $t")
+  }
 }
 
 case class AuthAny(collection: Assignable) extends AuthTerm {
   override val basis = Set(this)
   override val referencedAssignable: Assignable = collection
+
+  override def validate(context: Context): Option[String] = collection.getType(context) match {
+    case Left(err) => Some(err)
+    case Right(Sequence(Identity)) => None
+    case Right(t) => Some(s"Cannot use instance of type $t in `Any` term")
+  }
 }
 
 case class AuthAll(collection: Assignable) extends AuthTerm {
   override val basis = Set(this)
   override val referencedAssignable: Assignable = collection
+
+  override def validate(context: Context): Option[String] = collection.getType(context) match {
+    case Left(err) => Some(err)
+    case Right(Sequence(Identity)) => None
+    case Right(t) => Some(s"Cannot use instance of type $t in `All` term")
+  }
 }
 
 case class AuthCombination(left: AuthExpression, operator: BooleanOperator, right: AuthExpression) extends AuthExpression {
   override val basis: Set[AuthTerm] = left.basis.union(right.basis)
+
+  override def validate(context: Context): Option[String] = left.validate(context) match {
+    case None => right.validate(context)
+    case s => s
+  }
 }
 
-sealed trait Statement
-case class Assignment(left: Assignable, right: Expression) extends Statement
-case class Send(destination: Expression, amount: Expression, source: Option[Assignable]) extends Statement
-case class SequenceAppend(sequence: Expression, element: Expression) extends Statement
-case class SequenceClear(sequence: Expression) extends Statement
+sealed trait Statement {
+  def validate(context: Context): Option[String]
+}
+
+case class Assignment(left: Assignable, right: Expression) extends Statement {
+  override def validate(context: Context): Option[String] = {
+    val result = for (
+      leftTy <- left.getType(context);
+      rightTy <- right.getType(context);
+      res <- leftTy match {
+        case IntVar => rightTy match {
+          case IntVar | IntConst | UnsignedIntConst => Right(Unit)
+          case _ => Left(s"Cannot assign instance of $rightTy to $leftTy")
+        }
+
+        case UnsignedIntVar => rightTy match {
+          case UnsignedIntVar | UnsignedIntConst => Right(Unit)
+          case _ => Left(s"Cannot assign instance of $rightTy to $leftTy")
+        }
+
+        case IntConst | UnsignedIntConst => Left(s"Cannot assign value to integer constant")
+
+        case _ => if (leftTy != rightTy) Left(s"Cannot assign instance of $rightTy to $leftTy") else Right(Unit)
+      }
+    ) yield res
+
+    result.left.toOption
+  }
+}
+
+case class Send(destination: Expression, amount: Expression, source: Option[Assignable]) extends Statement {
+  override def validate(context: Context): Option[String] = {
+    val result = for (
+      destTy <- destination.getType(context);
+      amountTy <- amount.getType(context);
+      sourceTy <- source.fold(Right(UnsignedIntVar): Either[String, DataType])(_.getType(context))
+    ) yield destTy match {
+      case Identity => amountTy match {
+        case UnsignedIntVar | UnsignedIntConst => sourceTy match {
+          case UnsignedIntVar => Right(Unit)
+          case _ => Left(s"Expected send source of unsigned integer var type but found $sourceTy")
+        }
+        case _ => Left(s"Expected send amount of unsigned integer type but found $amountTy")
+      }
+      case _ => Left(s"Expected send destination of Identity type but found $destTy")
+    }
+
+    result.left.toOption
+  }
+}
+
+case class SequenceAppend(sequence: Expression, element: Expression) extends Statement {
+  override def validate(context: Context): Option[String] = {
+    val result = for (
+      sequenceTy <- sequence.getType(context);
+      elementTy <- element.getType(context)
+    ) yield sequenceTy match {
+      case Sequence(t) =>
+        if (t == elementTy) Right(Unit)
+        else Left(s"Cannot append instance of $elementTy to sequence of $t instances")
+      case t => Left(s"Cannot append to non-sequence type $t")
+    }
+
+    result.left.toOption
+  }
+}
+
+case class SequenceClear(sequence: Expression) extends Statement {
+  override def validate(context: Context): Option[String] = sequence.getType(context) match {
+    case Left(err) => Some(err)
+    case Right(Sequence(_)) => None
+    case Right(t) => Some(s"Cannot clean non sequence type $t")
+  }
+}

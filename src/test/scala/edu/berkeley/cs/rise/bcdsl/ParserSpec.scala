@@ -30,6 +30,9 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
 
     spec.validate() match {
       case None =>
+        if (errorExpected) {
+          fail("Expecting error that did not occur")
+        }
         val plusCal = PlusCal.writeSpecification(spec)
         val generatedTla = TLA.translatePlusCal(spec.name, plusCal)
 
@@ -128,7 +131,7 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
     testSpecification(spec)
   }
 
-  test("Contract using unsigned integer field") {
+  test("Contract using unsigned integer field and constants") {
     val spec = parseFile("unsigned.qtz")
     testSpecification(spec)
   }
@@ -136,5 +139,20 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
   test("Simple hash-based commitment scheme") {
     val spec = parseFile("hashing.qtz")
     testSpecification(spec)
+  }
+
+  test("Invalid assignment") {
+    val spec = parseFile("invalidAssignment.qtz")
+    testSpecification(spec, errorExpected = true)
+  }
+
+  test("Invalid guard") {
+    val spec = parseFile("invalidGuard.qtz")
+    testSpecification(spec, errorExpected = true)
+  }
+
+  test("Invalid authorization clause") {
+    val spec = parseFile("invalidAuth.qtz")
+    testSpecification(spec, errorExpected = true)
   }
 }

@@ -1,0 +1,9 @@
+contract InvalidAssignment {
+    data {
+      foo: Int
+    }
+
+    initialize: ->configured {
+        foo = "foo"
+    }
+}
