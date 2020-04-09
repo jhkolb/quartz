@@ -5,13 +5,15 @@ contract Hashing {
       x: HashValue[Int, Uint]
     }
 
-    initialAction: ->(nonce: Int, action: Uint) submitted {
+    initialAction: ->(nonce: Int, action: Uint) submitted
+    requires [ nonce != 0 && action != 0 ]
+    {
         player = sender
         x = hash(nonce, action)
     }
 
     revealAction: submitted ->(nonce: Int, action: Uint) revealed
-    requires [ hash(nonce, action) == x ] {
+    requires [ hash(nonce, action) != hash(0, 0) && hash(nonce, action) == x ] {
         revealedAction = action
     }
 }

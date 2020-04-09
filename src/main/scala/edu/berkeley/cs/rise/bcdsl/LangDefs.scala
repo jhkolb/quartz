@@ -16,6 +16,30 @@ case object UnsignedIntVar extends UnsignedInt
 case object UnsignedIntConst extends UnsignedInt
 
 case class HashValue(payloadTypes: Seq[DataType]) extends DataType {
+  def isCompatibleWith(other: HashValue): Boolean = this.payloadTypes.length == other.payloadTypes.length &&
+    this.payloadTypes.zip(other.payloadTypes).forall { case (left, right) =>
+      left match {
+        case IntVar | IntConst => right match {
+          case IntVar | IntConst | UnsignedIntConst => true
+          case _ => false
+        }
+
+        case UnsignedIntVar | UnsignedIntConst => right match {
+          case UnsignedIntVar | UnsignedIntConst => true
+          case _ => false
+        }
+
+        case l@HashValue(_) => right match {
+          case r@HashValue(_) => l.isCompatibleWith(r)
+          case _ => false
+        }
+
+        case Timestamp | Timespan | Identity | Bool | Sequence(_) | String | Struct(_) => left == right
+
+        case _ => false
+      }
+    }
+
   override def toString: String = s"HashValue[${payloadTypes.mkString(", ")}]"
 }
 
@@ -235,7 +259,15 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
           case _ => Left(s"Cannot compare $leftTy with $rightTy")
         }
 
-        case Timestamp | Timespan | Identity | Bool | Sequence(_) | String | Struct(_) | HashValue(_) =>
+        case leftHash@HashValue(_) => rightTy match {
+          case rightHash@HashValue(_) => if (leftHash.isCompatibleWith(rightHash)) {
+            Right(Bool)
+          } else {
+            Left(s"Cannot compare $leftTy with $rightTy")
+          }
+        }
+
+        case Timestamp | Timespan | Identity | Bool | Sequence(_) | String | Struct(_) =>
           if (leftTy != rightTy) Left(s"Cannot compare $leftTy with $rightTy") else Right(Bool)
 
         case _ => Left(s"Cannot determine equality for instances of $leftTy")
