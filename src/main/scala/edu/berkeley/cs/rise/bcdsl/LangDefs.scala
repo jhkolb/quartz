@@ -265,6 +265,8 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
           } else {
             Left(s"Cannot compare $leftTy with $rightTy")
           }
+
+          case _ => Left(s"Cannot compare $leftTy with $rightTy")
         }
 
         case Timestamp | Timespan | Identity | Bool | Sequence(_) | String | Struct(_) =>
