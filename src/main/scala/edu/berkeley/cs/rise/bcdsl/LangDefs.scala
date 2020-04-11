@@ -40,6 +40,33 @@ case class HashValue(payloadTypes: Seq[DataType]) extends DataType {
       }
     }
 
+  def isAssignableFrom(other: HashValue): Boolean = this.payloadTypes.length == other.payloadTypes.length &&
+    this.payloadTypes.zip(other.payloadTypes).forall { case (left, right) =>
+      left match {
+        case IntConst | UnsignedIntConst =>
+          throw new IllegalStateException("Assigning to HashValue with integer constant type in payload")
+
+        case IntVar => right match {
+          case IntVar | IntConst | UnsignedIntConst => true
+          case _ => false
+        }
+
+        case UnsignedIntVar => right match {
+          case UnsignedIntVar | UnsignedIntConst => true
+          case _ => false
+        }
+
+        case l@HashValue(_) => right match {
+          case r@HashValue(_) => l.isAssignableFrom(r)
+          case _ => false
+        }
+
+        case Timestamp | Timespan | Identity | Bool | Sequence(_) | String | Struct(_) => left == right
+
+        case _ => false
+      }
+    }
+
   override def toString: String = s"HashValue[${payloadTypes.mkString(", ")}]"
 }
 
@@ -486,7 +513,16 @@ case class Assignment(left: Assignable, right: Expression) extends Statement {
 
         case IntConst | UnsignedIntConst => Left(s"Cannot assign value to integer constant")
 
-        case _ => if (leftTy != rightTy) Left(s"Cannot assign instance of $rightTy to $leftTy") else Right(Unit)
+        case l@HashValue(_) => rightTy match {
+          case r@HashValue(_) => if (l.isAssignableFrom(r)) {
+            Right(Unit)
+          } else {
+            Left(s"Cannot assign instance of $rightTy to $leftTy")
+          }
+          case _ => Left(s"Cannot assign instance of $rightTy to $leftTy")
+        }
+
+        case _ => if (leftTy == rightTy) Right(Unit) else Left(s"Cannot assign instance of $rightTy to $leftTy")
       }
     ) yield res
 

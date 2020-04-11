@@ -5,7 +5,11 @@ contract Hashing {
       x: HashValue[Int, Uint]
     }
 
-    initialAction: ->(nonce: Int, action: Uint) submitted
+    initialize: -> initialized {
+        x = hash(0, 0)
+    }
+
+    initialAction: initialized->(nonce: Int, action: Uint) submitted
     requires [ nonce != 0 && action != 0 ]
     {
         player = sender
