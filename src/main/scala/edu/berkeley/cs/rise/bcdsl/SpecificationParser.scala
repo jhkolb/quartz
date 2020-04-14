@@ -58,7 +58,7 @@ object SpecificationParser extends JavaTokenParsers {
 
   def assignable: Parser[Assignable] = structAccess | mappingRef | ident ^^ VarRef
 
-  def multDiv: Parser[ArithmeticOperator] = "*" ^^^ Multiply | "/" ^^^ Divide
+  def multDivMod: Parser[ArithmeticOperator] = "*" ^^^ Multiply | "/" ^^^ Divide | "%" ^^^ Modulo
 
   def plusMinus: Parser[ArithmeticOperator] = "+" ^^^ Plus | "-" ^^^ Minus
 
@@ -77,7 +77,7 @@ object SpecificationParser extends JavaTokenParsers {
 
   def factor: Parser[Expression] = sequenceSize | hashApplication | valueDecl | "(" ~> expression <~ ")"
 
-  def term: Parser[Expression] = chainl1(factor, multDiv ^^
+  def term: Parser[Expression] = chainl1(factor, multDivMod ^^
     (op => (left: Expression, right: Expression) => ArithmeticOperation(left, op, right)))
 
   // Note: It's possible we could do something fancy like declaring this as a Parser[ArithmeticExpression]

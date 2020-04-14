@@ -236,6 +236,7 @@ object PlusCal {
           case Minus => builder.append(" - ")
           case Multiply => builder.append(" * ")
           case Divide => builder.append(" \\div ")
+          case Modulo => builder.append(" % ")
         }
 
         right match {
