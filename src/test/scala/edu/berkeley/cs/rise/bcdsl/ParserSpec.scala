@@ -155,4 +155,9 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
     val spec = parseFile("invalidAuth.qtz")
     testSpecification(spec, errorExpected = true)
   }
+
+  test("Modulo") {
+    val spec = parseFile("modulo.qtz")
+    testSpecification(spec)
+  }
 }

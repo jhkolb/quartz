@@ -89,6 +89,7 @@ object Solidity {
             case _ => builder.append(" * ")
           }
           case Divide => builder.append(" / ")
+          case Modulo => builder.append(" % ")
         }
 
         right match {

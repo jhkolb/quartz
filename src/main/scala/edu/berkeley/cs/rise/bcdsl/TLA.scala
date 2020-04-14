@@ -155,6 +155,7 @@ object TLA {
           case Minus => builder.append(" - ")
           case Multiply => builder.append(" * ")
           case Divide => builder.append(" / ")
+          case Modulo => builder.append(" % ")
         }
 
         right match {

@@ -255,6 +255,7 @@ case object Plus extends ArithmeticOperator
 case object Minus extends ArithmeticOperator
 case object Multiply extends ArithmeticOperator
 case object Divide extends ArithmeticOperator
+case object Modulo extends ArithmeticOperator
 
 sealed trait LTLOperator
 case object Always extends LTLOperator
@@ -350,6 +351,11 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case Timespan => Right(Timespan)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
+        case Modulo => rightTy match {
+          case IntConst | UnsignedIntConst => Right(IntConst)
+          case IntVar | UnsignedIntVar => Right(IntVar)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
         case _ => rightTy match {
           case IntConst | UnsignedIntConst => Right(IntConst)
           case IntVar => Right(IntVar)
@@ -363,7 +369,10 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case Timespan => Right(Timespan)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
-
+        case Modulo => rightTy match {
+          case IntConst | UnsignedIntConst | IntVar | UnsignedIntVar => Right(IntVar)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
         case _ => rightTy match {
           case IntConst | UnsignedIntConst | IntVar => Right(IntVar)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
@@ -377,6 +386,13 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case IntConst => Right(IntConst)
           case IntVar => Right(IntVar)
           case Timespan => Right(Timespan)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
+        case Modulo => rightTy match {
+          case UnsignedIntConst => Right(UnsignedIntConst)
+          case UnsignedIntVar => Right(UnsignedIntVar)
+          case IntConst => Right(IntConst)
+          case IntVar => Right(IntVar)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
         case _ => rightTy match {
@@ -394,7 +410,11 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case Timespan => Right(Timespan)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
-
+        case Modulo => rightTy match {
+          case UnsignedIntConst | UnsignedIntVar => Right(UnsignedIntVar)
+          case IntConst | IntVar => Right(IntVar)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
         case _ => rightTy match {
           case UnsignedIntConst | UnsignedIntVar => Right(UnsignedIntVar)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
@@ -413,7 +433,7 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case _ => Left(s"Illegal addition of $rightTy to timestamp")
         }
 
-        case Multiply | Divide => Left(s"Cannot multiply or divide timestamps")
+        case Multiply | Divide | Modulo => Left(s"Cannot multiply, divide, or modulo timestamps")
       }
 
       case Timespan => operator match {
