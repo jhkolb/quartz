@@ -5,14 +5,18 @@ contract UnsignedInt {
     }
 
     initialize: ->(initValue: Uint) configured {
-        foo = 3
-        bar = -7
+        foo = initValue + 3
+        bar = -7 * 2
+    }
+
+    modify: configured -> configured {
+        bar = 2 + -7
     }
 
     payOut: configured -> paid
     requires [ bar > -1 ] {
         foo = foo - 1
-        bar = bar + -3
+        bar = bar + 3
         send foo to sender consuming foo
     }
 }
