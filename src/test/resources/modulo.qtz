@@ -13,23 +13,23 @@ contract Modulo {
         tri = -4
     }
 
-    constAndConst: open -> open requires [ 7%3 == 1 && -7%3 == 2 && 7%-3 == -2 && -7%-3 == -1 ]
+    constAndConst: open -> open requires [ 7 % 3 == 1 && -7 % 3 == 2 && 7 % -3 == -2 && -7 % -3 == -1 ]
 
-    uintVarAndConst: open -> open requires [ foo%3 == 1 && 17%foo == 1 && foo%-3 == -2 && -20%foo == -12 ] {
+    uintVarAndConst: open -> open requires [ foo % 3 == 1 && 17 % foo == 1 && foo % -3 == -2 && -20 % foo == -12 ] {
         foo = foo % 3
         foo = 17 % foo
         bar = foo % -3
         bar = -17 % foo
     }
 
-    intVarAndConst: open -> open requires [ bar%3 == 2 && 17%bar == -4 && bar%-3 == -1 && -17%bar == -3 ] {
+    intVarAndConst: open -> open requires [ bar % 3 == 2 && 17 % bar == -4 && bar % -3 == -1 && -17 % bar == -3 ] {
         bar = bar % 3
         bar = 17 % bar
         bar = bar % -3
         bar = -17 % bar
     }
 
-    uintVarAndIntVar: open -> open requires [ foo%quad == 0 && foo%tri == 0 && tri%quad == 0 && bar%tri == -3 ] {
+    uintVarAndIntVar: open -> open requires [ foo % quad == 0 && foo % tri == 0 && tri % quad == 0 && bar % tri == -3 ] {
         foo = foo % quad
         bar = bar % foo
         bar = foo % bar

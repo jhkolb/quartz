@@ -351,11 +351,6 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case Timespan => Right(Timespan)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
-        case Modulo => rightTy match {
-          case IntConst | UnsignedIntConst => Right(IntConst)
-          case IntVar | UnsignedIntVar => Right(IntVar)
-          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
-        }
         case _ => rightTy match {
           case IntConst | UnsignedIntConst => Right(IntConst)
           case IntVar => Right(IntVar)
@@ -367,10 +362,6 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
         case Multiply => rightTy match {
           case IntConst | UnsignedIntConst | IntVar => Right(IntVar)
           case Timespan => Right(Timespan)
-          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
-        }
-        case Modulo => rightTy match {
-          case IntConst | UnsignedIntConst | IntVar | UnsignedIntVar => Right(IntVar)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
         case _ => rightTy match {
@@ -388,13 +379,6 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case Timespan => Right(Timespan)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
-        case Modulo => rightTy match {
-          case UnsignedIntConst => Right(UnsignedIntConst)
-          case UnsignedIntVar => Right(UnsignedIntVar)
-          case IntConst => Right(IntConst)
-          case IntVar => Right(IntVar)
-          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
-        }
         case _ => rightTy match {
           case UnsignedIntConst => Right(UnsignedIntConst)
           case UnsignedIntVar => Right(UnsignedIntVar)
@@ -408,11 +392,6 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
         case Multiply => rightTy match {
           case UnsignedIntConst | UnsignedIntVar => Right(UnsignedIntVar)
           case Timespan => Right(Timespan)
-          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
-        }
-        case Modulo => rightTy match {
-          case UnsignedIntConst | UnsignedIntVar => Right(UnsignedIntVar)
-          case IntConst | IntVar => Right(IntVar)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
         case _ => rightTy match {
