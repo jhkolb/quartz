@@ -118,10 +118,10 @@ object SpecificationParser extends JavaTokenParsers {
   def sendAndConsume: Parser[Send] = "sendAndConsume" ~ assignable ~ "to" ~ expression ^^
     { case "sendAndConsume" ~ amount ~ "to" ~ destExpr => Send(destExpr, amount, Some(amount)) }
 
-  def sequenceAddition: Parser[SequenceAppend] = "add" ~ expression ~ "to" ~ expression ^^
+  def sequenceAddition: Parser[SequenceAppend] = "add" ~ expression ~ "to" ~ assignable ^^
     { case "add" ~ element ~ "to" ~ set => SequenceAppend(set, element) }
 
-  def sequenceClear: Parser[SequenceClear] = "clear" ~> expression ^^ SequenceClear
+  def sequenceClear: Parser[SequenceClear] = "clear" ~> assignable ^^ SequenceClear
 
   def statement: Parser[Statement] = assignment | send | sendAndConsume | sequenceAddition | sequenceClear
 

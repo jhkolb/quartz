@@ -457,19 +457,48 @@ object PlusCal {
   // Add "_arg" suffix to avoid name collisions in the TLA+ that gets produced from this PlusCal
     "with " + parameters.map(p => s"${p.name + "_arg"} \\in ${writeDomain(p.ty, structs)}").mkString(", ") + " do"
 
-  // Use the "||" line terminator between assignments, ";" otherwise
-  // This deals with multiple assignments to the same struct under a single label
   private def writeTransitionBody(body: Seq[Statement]): String = body match {
     case Seq(s) => writeStatement(s, ";")
     case _ =>
       val builder = new StringBuilder()
-      body.sliding(2).foreach { case Seq(current, next) =>
-        val terminator = next match {
-          case _: Send => s";\n${nextLabel()}"
-          case _ => " ||"
+      // Walk through statements and use "||" as terminator to denote simultaneous assignment
+      // Until we find a variable previously assigned to or a send
+      // Then use ";" terminator and reset knowledge of previous assignment targets
+      body.sliding(2).foldLeft(Set.empty[Assignable]) { case (prevAssignments, Seq(current, next)) =>
+        val currentAssignments = current match {
+          case Assignment(left, _) => prevAssignments + left
+          case Send(_, _, source) => source.fold(prevAssignments)(s => prevAssignments + s)
+          case SequenceAppend(sequence, _) => prevAssignments + sequence
+          case SequenceClear(sequence) => prevAssignments + sequence
         }
+
+        val (terminator, nextAssignments) = next match {
+          case Assignment(left, _) => if (currentAssignments.contains(left)) {
+            (s";\n${nextLabel()}", Set.empty[Assignable])
+          } else {
+            (" ||", currentAssignments)
+          }
+
+          case SequenceAppend(sequence, _) => if (currentAssignments.contains(sequence)) {
+            (s";\n${nextLabel()}", Set.empty[Assignable])
+          } else {
+            (" ||", currentAssignments)
+          }
+
+          case SequenceClear(sequence) => if (currentAssignments.contains(sequence)) {
+            (s";\n${nextLabel()}", Set.empty[Assignable])
+          } else {
+            (" ||", currentAssignments)
+          }
+
+          case _: Send => (s";${nextLabel()}", Set.empty[Assignable])
+        }
+
         builder.append(writeStatement(current, terminator))
+        nextAssignments
       }
+
+      // And don't forget the last statement!
       builder.append(writeStatement(body.last, ";"))
       builder.toString()
   }
@@ -494,8 +523,8 @@ object PlusCal {
       Send(mangleExpression(destination, transition), mangleExpression(amount, transition),
         source.map(mangleAssignable(_, transition)))
     case SequenceAppend(sequence, element) =>
-      SequenceAppend(mangleExpression(sequence, transition), mangleExpression(element, transition))
-    case SequenceClear(sequence) => SequenceClear(mangleExpression(sequence, transition))
+      SequenceAppend(mangleAssignable(sequence, transition), mangleExpression(element, transition))
+    case SequenceClear(sequence) => SequenceClear(mangleAssignable(sequence, transition))
   }
 
   // Helper method for mangleTransition

@@ -556,7 +556,7 @@ case class Send(destination: Expression, amount: Expression, source: Option[Assi
   }
 }
 
-case class SequenceAppend(sequence: Expression, element: Expression) extends Statement {
+case class SequenceAppend(sequence: Assignable, element: Expression) extends Statement {
   override def validate(context: Context): Option[String] = {
     val result = for (
       sequenceTy <- sequence.getType(context);
@@ -572,7 +572,7 @@ case class SequenceAppend(sequence: Expression, element: Expression) extends Sta
   }
 }
 
-case class SequenceClear(sequence: Expression) extends Statement {
+case class SequenceClear(sequence: Assignable) extends Statement {
   override def validate(context: Context): Option[String] = sequence.getType(context) match {
     case Left(err) => Some(err)
     case Right(Sequence(_)) => None
