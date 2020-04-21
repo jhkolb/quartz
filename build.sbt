@@ -9,4 +9,4 @@ libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.5" % "test"
 libraryDependencies += "com.github.scopt" %% "scopt" % "3.7.1"
 
 mainClass in assembly := Some("edu.berkeley.cs.rise.bcdsl.Main")
-assemblyJarName in assembly := "bcDsl.jar"
+assemblyJarName in assembly := "quartz.jar"
