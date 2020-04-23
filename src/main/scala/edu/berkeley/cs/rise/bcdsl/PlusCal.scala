@@ -35,7 +35,7 @@ object PlusCal {
     case Bool => "{ TRUE, FALSE }"
     case Timestamp => "0..MAX_INT"
     case Timespan => "0..MAX_INT"
-    case String => throw new NotImplementedError("Strings have infinite domain") // TODO
+    case String => (1 to TLA.NUM_STRINGS).map(i => "\"" + s"str_${i.toString}" + "\"").mkString("{", ",", "}")
     case HashValue(payloadTypes) => payloadTypes.map(t => s"(${writeDomain(t, structs)})").mkString("(", " \\X ", ")")
     case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
     case Struct(name) => "[" + structs(name).map { case (name, ty) => s"$name: ${writeDomain(ty, structs)}" }.mkString(", ") + "]"

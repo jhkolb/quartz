@@ -28,7 +28,9 @@ object TLA {
     "now" -> "__currentTime",
   )
 
+  // TODO make these user-visible configuration parameters
   private[bcdsl] val NUM_IDENTITIES = 3
+  private[bcdsl] val NUM_STRINGS = 1
 
   private def mangleName(name: String): String = "__" + name.toLowerCase
 
