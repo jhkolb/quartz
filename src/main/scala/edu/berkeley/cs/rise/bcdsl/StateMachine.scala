@@ -117,6 +117,12 @@ case class StateMachine(structs: Map[String, Map[String, DataType]], fields: Seq
       return Some(s"State machine has field of undefined struct type ${undefinedStructName.get}")
     }
 
+    // Check that no transitions have same name
+    val duplicateTransition = transitions.groupBy(_.name).find(_._2.length > 1)
+    if (duplicateTransition.isDefined) {
+      return Some(s"State machine has multiple transitions sharing name: ${duplicateTransition.get._1}")
+    }
+
     // Check that only one transition is missing a source, this indicates the initial state
     val initialTransitions = transitions.filter(_.origin.isEmpty)
     if (initialTransitions.isEmpty) {

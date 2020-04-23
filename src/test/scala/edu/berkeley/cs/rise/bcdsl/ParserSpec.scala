@@ -160,4 +160,14 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
     val spec = parseFile("modulo.qtz")
     testSpecification(spec)
   }
+
+  test("Duplicate Transition Names") {
+    val spec = parseFile("duplicateTransitionNames.qtz")
+    testSpecification(spec, errorExpected = true)
+  }
+
+  test("Unnecessary Assignment") {
+    val spec = parseFile("unnecessaryAssignment.qtz")
+    testSpecification(spec, errorExpected = true)
+  }
 }

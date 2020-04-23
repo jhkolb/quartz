@@ -1,0 +1,19 @@
+contract DuplicateTransNames {
+    data {
+      foo: Int
+    }
+
+    initialize: ->configured {
+        foo = 4
+    }
+
+    modify: configured -> configured
+    requires [ foo > 4 ] {
+        foo = 8
+    }
+
+    modify: configured -> configured
+    requires [ foo <= 4 ] {
+        foo = 7
+    }
+}

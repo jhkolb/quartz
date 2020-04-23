@@ -501,7 +501,9 @@ sealed trait Statement {
 }
 
 case class Assignment(left: Assignable, right: Expression) extends Statement {
-  override def validate(context: Context): Option[String] = {
+  override def validate(context: Context): Option[String] = if (left == right) {
+    Some("Assignment without any effect")
+  } else {
     val result = for (
       leftTy <- left.getType(context);
       rightTy <- right.getType(context);

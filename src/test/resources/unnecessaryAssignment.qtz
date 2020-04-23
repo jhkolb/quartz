@@ -1,0 +1,14 @@
+contract UnnecessaryAssignment {
+    data {
+      foo: Int
+    }
+
+    initialize: ->configured {
+        foo = 4
+    }
+
+    modify: configured -> configured
+    requires [ foo > 4 ] {
+        foo = foo
+    }
+}
