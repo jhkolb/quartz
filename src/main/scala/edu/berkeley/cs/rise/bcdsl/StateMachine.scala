@@ -81,7 +81,15 @@ case class Transition(name: String, origin: Option[String], destination: String,
     body.fold(None: Option[String])(b => b.zipWithIndex.foldLeft(None: Option[String]) { case (prev, (current, i)) =>
       prev match {
         case s@Some(_) => s
-        case None => current.validate(localContext).map(makeTypeErrMsg(i, _))
+        case None => current match {
+          case Assignment(left, right) => if (left == right) {
+            Some(s"Error on statement ${i + 1} of transition $description: Assignment with no effect")
+          } else {
+            current.validate(localContext).map(makeTypeErrMsg(i, _))
+          }
+
+          case _ => current.validate(localContext).map(makeTypeErrMsg(i, _))
+        }
       }
     })
   }
