@@ -135,7 +135,10 @@ object Solidity {
     builder.toString()
   }
 
-  private def writeParameter(p: Variable, payable: Boolean): String = s"${writeType(p.ty, payable)} ${p.name}"
+  private def writeParameter(p: Variable, payable: Boolean): String = p.ty match {
+    case Mapping(_, _) | Sequence(_) | Struct(_) => s"${writeType(p.ty, payable)} memory ${p.name}"
+    case _ => s"${writeType(p.ty, payable)} ${p.name}"
+  }
 
   private def writeParameters(parameters: Seq[(Variable, Boolean)]): String =
     parameters.map { case (param, payable) => writeParameter(param, payable) }.mkString(", ")

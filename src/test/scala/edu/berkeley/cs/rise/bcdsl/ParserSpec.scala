@@ -91,6 +91,11 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
     testSpecification(spec)
   }
 
+  test("Static multi-signature wallet") {
+    val spec = parseFile("staticMultiSig.qtz")
+    testSpecification(spec)
+  }
+
   test("Strict multi-signature wallet") {
     val spec = parseFile("strictMultiSig.qtz")
     testSpecification(spec)

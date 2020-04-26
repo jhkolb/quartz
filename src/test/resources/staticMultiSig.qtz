@@ -1,0 +1,14 @@
+contract StaticMultiSig {
+    data {
+      Signers: Sequence[Identity]
+    }
+
+    initialize: ->(signers: Sequence[Identity]) open {
+        Signers = signers
+    }
+
+    sendPayment: open ->(recipient: Identity, amount: Uint) open
+    authorized [ all Signers ] {
+        send amount to recipient
+    }
+}
