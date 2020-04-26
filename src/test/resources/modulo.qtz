@@ -6,14 +6,14 @@ contract Modulo {
         tri: Int
     }
 
-    initialize: ->(initValue: Uint) open {
+    initialize: -> open {
         foo = 16
         quad = 4
         bar = -7
         tri = -4
     }
 
-    constAndConst: open -> open requires [ 7 % 3 == 1 && -7 % 3 == 2 && 7 % -3 == -2 && -7 % -3 == -1 ]
+    constAndConst: open -> open requires [ 7 % 3 == 1 && -7 % 3 == -1 && 7 % -3 == 1 && -7 % -3 == -1 ]
 
     uintVarAndConst: open -> open requires [ foo % 3 == 1 && 17 % foo == 1 ] {
         foo = foo % 3

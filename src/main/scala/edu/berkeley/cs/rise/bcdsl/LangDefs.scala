@@ -380,6 +380,14 @@ case class ArithmeticOperation(left: Expression, operator: ArithmeticOperator, r
           case Timespan => Right(Timespan)
           case _ => Left(s"Illegal operation between $leftTy and $rightTy")
         }
+        // We follow the Solidity/C convention here, not Python
+        case Modulo => rightTy match {
+          case UnsignedIntConst => Right(UnsignedIntConst)
+          case UnsignedIntVar => Right(UnsignedIntVar)
+          case IntConst => Right(UnsignedIntConst)
+          case IntVar => Right(IntVar)
+          case _ => Left(s"Illegal operation between $leftTy and $rightTy")
+        }
         case _ => rightTy match {
           case UnsignedIntConst => Right(UnsignedIntConst)
           case UnsignedIntVar => Right(UnsignedIntVar)
