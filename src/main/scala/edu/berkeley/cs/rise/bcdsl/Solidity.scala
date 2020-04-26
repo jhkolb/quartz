@@ -67,7 +67,11 @@ object Solidity {
       case UnsignedIntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")
       case BoolConst(b) => builder.append(b)
-      case Hash(payload) => builder.append(payload.map(writeExpression).mkString("keccak256(abi.encodePacked(", ",", "))"))
+      case Hash(payload) => builder.append(payload.map {
+        case IntConst(v) => s"int($v)"
+        case UnsignedIntConst(v) => s"uint($v)"
+        case exp => writeExpression(exp)
+      }.mkString("keccak256(abi.encodePacked(", ",", "))"))
       case Second => builder.append("seconds")
       case Minute => builder.append("minutes")
       case Hour => builder.append("hours")
