@@ -237,6 +237,7 @@ object Solidity {
           case AuthAny(collection) =>
             appendLine(builder, s"if (!sequenceContains(${writeExpression(collection)}, ${RESERVED_NAME_TRANSLATIONS("sender")})) {")
           case AuthAll(collection) =>
+            appendLine(builder, s"require(sequenceContains(${writeExpression(collection)}, ${RESERVED_NAME_TRANSLATIONS("sender")}));")
             appendLine(builder, s"${writeApprovalVarRef(transition, subTerms.head)} = true;")
             val varName = writeApprovalVarName(transition, subTerms.head)
             transition.parameters.fold {
