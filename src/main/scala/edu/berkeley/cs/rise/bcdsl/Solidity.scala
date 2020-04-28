@@ -147,7 +147,7 @@ object Solidity {
   private def writeParameters(parameters: Seq[(Variable, Boolean)]): String =
     parameters.map { case (param, payable) => writeParameter(param, payable) }.mkString(", ")
 
-  private def writeStatement(statement: Statement): String = statement match {
+  private def writeStatement(statement: Statement, useCall:Boolean = false): String = statement match {
     case Assignment(left, right) => writeLine(s"${writeExpression(left)} = ${writeExpression(right)};")
 
     case Send(destination, amount, source) =>
@@ -158,12 +158,21 @@ object Solidity {
       }
       source match {
         // TODO we just convert to uint as needed for now, but this assumes amount >= 0
-        case None => writeLine(s"$destStr.transfer(uint(${writeExpression(amount)}));")
+        case None => if (useCall) {
+          writeLine(s"$destStr.call.value(${writeExpression(amount)})();")
+        } else {
+          writeLine(s"$destStr.transfer(uint(${writeExpression(amount)}));")
+        }
+
         case Some(s) =>
           val builder = new StringBuilder()
           appendLine(builder, s"uint __temporary = ${writeExpression(amount)};")
           appendLine(builder, s"${writeExpression(s)} = ${writeExpression(s)} - __temporary;")
-          appendLine(builder, s"$destStr.transfer(__temporary);")
+          if (useCall) {
+            appendLine(builder, s"$destStr.call.value(__temporary)();")
+          } else {
+            appendLine(builder, s"$destStr.transfer(__temporary);")
+          }
           builder.toString()
       }
 
@@ -174,7 +183,7 @@ object Solidity {
       writeLine(s"delete ${writeExpression(sequence)};")
   }
 
-  private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
+  private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]], useCall: Boolean = false): String = {
     val builder = new StringBuilder()
 
     val paramsRepr = transition.parameters.fold("") { params =>
@@ -215,7 +224,7 @@ object Solidity {
       if (t.destination != t.origin.get) {
         appendLine(builder, s"$CURRENT_STATE_VAR = State.${t.destination};")
       }
-      t.body.foreach(_.foreach(s => builder.append(writeStatement(s))))
+      t.body.foreach(_.foreach(s => builder.append(writeStatement(s, useCall))))
 
       appendLine(builder, "return;")
       indentationLevel -= 1
@@ -289,7 +298,7 @@ object Solidity {
       appendLine(builder, s"$CURRENT_STATE_VAR = State.${transition.destination};")
     }
 
-    transition.body.foreach(_.foreach(s => builder.append(writeStatement(s))))
+    transition.body.foreach(_.foreach(s => builder.append(writeStatement(s, useCall))))
 
     if (transition.origin.fold(false)(_ == transition.destination)) {
       builder.append(writeClearAuthTerms(transition))
@@ -472,7 +481,7 @@ object Solidity {
     solidityTemplate.split("\n").map(INDENTATION_STR * indentationLevel + _).mkString("\n")
   }
 
-  def writeSpecification(specification: Specification): String = specification match {
+  def writeSpecification(specification: Specification, useCall: Boolean = false): String = specification match {
     case Specification(name, stateMachine, _) =>
       val builder = new StringBuilder()
       appendLine(builder, s"pragma solidity >=$SOLIDITY_VERSION;\n")
@@ -501,7 +510,7 @@ object Solidity {
       builder.append(writeAuthorizationFields(stateMachine))
       builder.append("\n")
 
-      stateMachine.transitions foreach { t => builder.append(writeTransition(t, autoTransitions)) }
+      stateMachine.transitions foreach { t => builder.append(writeTransition(t, autoTransitions, useCall)) }
       extractAllMembershipTypes(stateMachine).foreach(ty => builder.append(writeSequenceContainsTest(ty) + "\n"))
       builder.append("\n")
 

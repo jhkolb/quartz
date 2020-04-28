@@ -5,10 +5,11 @@ object ArgumentParser {
     inputFile: String = "",
     toSolidity: Boolean = false,
     toTLA: Boolean = false,
+    useCall: Boolean = false,
   )
 
-  private val parser = new scopt.OptionParser[Config]("BcDsl") {
-    head("BcDsl", "0.1")
+  private val parser = new scopt.OptionParser[Config]("Quartz") {
+    head("Quartz", "0.2")
 
     opt[String]('i', "inputFile") required() action { (x, c) =>
       c.copy(inputFile = x)
@@ -20,6 +21,10 @@ object ArgumentParser {
 
     opt[Unit]('t', "toTLA") action{ (_, c) =>
       c.copy(toTLA = true)
+    }
+
+    opt[Unit]('c', name= "useCall") action{ (_, c) =>
+      c.copy(useCall = true)
     }
 
     checkConfig { c =>

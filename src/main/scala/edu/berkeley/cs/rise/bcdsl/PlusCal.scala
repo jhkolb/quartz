@@ -554,7 +554,7 @@ object PlusCal {
   }
 
   // TODO code cleanup
-  private def writeInvocationLoop(stateMachine: StateMachine): String = {
+  private def writeInvocationLoop(stateMachine: StateMachine, useCall: Boolean = false): String = {
     val builder = new StringBuilder()
     appendLine(builder, "procedure invokeContract(sender) begin InvokeContract:")
     indentationLevel += 1
@@ -584,7 +584,7 @@ object PlusCal {
     appendLine(builder, "either")
     indentationLevel += 1
     val nonInitialTransitions = stateMachine.transitions.filter(_.origin.isDefined)
-    nonInitialTransitions.foreach { transition =>
+    nonInitialTransitions.zipWithIndex.foreach { case (transition, i) =>
       transition.parameters.foreach { params =>
         appendLine(builder, writeTransitionArgumentSelection(params, stateMachine.structs))
         indentationLevel += 1
@@ -598,12 +598,19 @@ object PlusCal {
         appendLine(builder, "end with;")
       }
 
+      if (i < nonInitialTransitions.length - 1) {
+        indentationLevel -= 1
+        appendLine(builder, "or")
+        indentationLevel += 1
+      }
+    }
+
+    if (!useCall) {
       indentationLevel -= 1
       appendLine(builder, "or")
       indentationLevel += 1
+      appendLine(builder, "call throw();")
     }
-
-    appendLine(builder, "call throw();")
     indentationLevel -= 1
     appendLine(builder, "end either;")
     builder.append(nextLabel() + "\n")
@@ -614,7 +621,7 @@ object PlusCal {
     builder.toString()
   }
 
-  private def writeSendFunction(): String = {
+  private def writeSendFunction(useCall: Boolean = false): String = {
     val builder = new StringBuilder()
     appendLine(builder, "procedure sendTokens(recipient, amount) begin SendTokens:")
     indentationLevel += 1
@@ -622,8 +629,12 @@ object PlusCal {
     builder.append("SendInvocation:\n")
     appendLine(builder, "either")
     indentationLevel += 1
-    appendLine(builder, "call invokeContract(recipient);")
-    appendLine(builder, "goto SendInvocation;")
+    if (useCall) {
+      appendLine(builder, "call invokeContract(recipient);")
+      appendLine(builder, "goto SendInvocation;")
+    } else {
+      appendLine(builder, "call throw();")
+    }
     indentationLevel -= 1
     appendLine(builder, "or")
     indentationLevel += 1
@@ -651,7 +662,7 @@ object PlusCal {
     builder.toString()
   }
 
-  def writeSpecification(specification: Specification): String = specification match {
+  def writeSpecification(specification: Specification, useCall: Boolean = false): String = specification match {
     case Specification(name, StateMachine(structs, fields, transitions), _) =>
       val stateMachine = StateMachine(structs, fields, transitions.map(mangleTransition))
       val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
@@ -695,9 +706,9 @@ object PlusCal {
       builder.append(writeTransition(initialTransition, autoTransitions))
       standardTransitions.foreach(t => builder.append(writeTransition(t, autoTransitions)))
 
-      builder.append(writeInvocationLoop(stateMachine))
+      builder.append(writeInvocationLoop(stateMachine, useCall))
       builder.append("\n")
-      builder.append(writeSendFunction())
+      builder.append(writeSendFunction(useCall))
       builder.append("\n")
       builder.append(writeThrowFunction(stateMachine))
       builder.append("\n")
