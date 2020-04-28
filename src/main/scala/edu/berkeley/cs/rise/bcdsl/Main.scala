@@ -38,8 +38,8 @@ object Main {
           val doctoredTla = TLA.modifyGeneratedTLA(generatedTla)
 
           Utils.writeStringToFile(s"${specification.name}.tla", doctoredTla)
-          Utils.writeStringToFile("MC.tla", TLA.writeSpecificationToAux(specification))
-          Utils.writeStringToFile("MC.cfg", TLA.writeSpecificationToConfig(specification))
+          Utils.writeStringToFile(s"${specification.name}MC.tla", TLA.writeSpecificationToAux(specification))
+          Utils.writeStringToFile(s"${specification.name}MC.cfg", TLA.writeSpecificationToConfig(specification))
         }
     }
   }

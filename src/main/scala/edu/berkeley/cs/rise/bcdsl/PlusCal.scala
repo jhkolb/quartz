@@ -437,8 +437,8 @@ object PlusCal {
       appendLine(builder, s"$CURRENT_STATE_VAR := ${transition.destination.toUpperCase};")
     }
     // Add incoming funds to token balance
-    if (transition.parameters.getOrElse(Seq.empty[Variable]).contains(Variable("tokens", IntVar))) {
-      appendLine(builder, "balance := balance + tokens;")
+    if (transition.parameters.getOrElse(Seq.empty[Variable]).contains(Variable(s"${transition.name}_tokens", UnsignedIntVar))) {
+      appendLine(builder, s"balance := balance + ${transition.name}_tokens;")
     }
     transition.body.foreach(b => builder.append(writeTransitionBody(b)))
 

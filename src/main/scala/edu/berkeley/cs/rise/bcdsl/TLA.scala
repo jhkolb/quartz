@@ -8,11 +8,11 @@ import scala.sys.process._
 
 object TLA {
   private val MODEL_CONSTANTS: Map[String, String] = Map(elems =
-    "MAX_TIMESTEP" -> "5",
+    "MAX_TIMESTEP" -> "3",
     "MAX_ELAPSED_TIME" -> "11",
-    "MIN_INT" -> "-1000",
-    "MAX_INT" -> "1000",
-    "MAX_CALL_DEPTH" -> "5",
+    "MIN_INT" -> "-5",
+    "MAX_INT" -> "5",
+    "MAX_CALL_DEPTH" -> "3",
   )
 
   private val MODEL_CONSTRAINTS: Seq[String] = Seq(
