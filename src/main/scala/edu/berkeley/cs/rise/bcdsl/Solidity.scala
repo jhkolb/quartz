@@ -77,6 +77,7 @@ object Solidity {
       case Hour => builder.append("hours")
       case Day => builder.append("days")
       case Week => builder.append("weeks")
+      case LTLMax(_) | LTLMin(_) | LTLSum(_) => throw new IllegalArgumentException("LTL Expressions not used in Solidity")
 
       case ArithmeticOperation(left, operator, right) =>
         left match {
@@ -124,7 +125,7 @@ object Solidity {
           case GreaterThan => builder.append(" > ")
           case And => builder.append(" && ")
           case Or => builder.append(" || ")
-          case In | NotIn => throw new IllegalArgumentException // This should never be reached
+          case In | NotIn | Implies => throw new IllegalArgumentException // This should never be reached
         }
 
         right match {
@@ -391,6 +392,7 @@ object Solidity {
         operator match {
           case And => builder.append(" && ")
           case Or => builder.append(" || ")
+          case Implies => throw new IllegalArgumentException
         }
 
         if (depth > 0) {

@@ -38,4 +38,6 @@ contract Auction {
 properties {
     [](balance >= 0)
     [](<>(closed))
+    [](max(submitBid.tokens) > 0)
+    [](closed => HighestBid >= max(submitBid.tokens))
 }

@@ -62,7 +62,7 @@ object SpecificationParser extends JavaTokenParsers {
 
   def plusMinus: Parser[ArithmeticOperator] = "+" ^^^ Plus | "-" ^^^ Minus
 
-  def booleanOp: Parser[BooleanOperator] = "&&" ^^^ And | "||" ^^^ Or
+  def booleanOp: Parser[BooleanOperator] = "&&" ^^^ And | "||" ^^^ Or | "=>" ^^^ Implies
 
   def sequenceOp: Parser[SequenceOperator] = "in" ^^^ In | "not in" ^^^ NotIn
 
@@ -75,7 +75,11 @@ object SpecificationParser extends JavaTokenParsers {
 
   def sequenceSize: Parser[SequenceSize] = "size" ~ "(" ~> expression <~ ")" ^^ SequenceSize
 
-  def factor: Parser[Expression] = sequenceSize | hashApplication | valueDecl | "(" ~> expression <~ ")"
+  def ltlExpression: Parser[LTLExpression] = "max" ~ "(" ~> assignable <~ ")" ^^ LTLMax |
+    "min" ~ "(" ~> assignable <~ ")" ^^ LTLMin |
+    "sum" ~ "(" ~> assignable <~ ")" ^^ LTLSum
+
+  def factor: Parser[Expression] = sequenceSize | hashApplication | ltlExpression | valueDecl | "(" ~> expression <~ ")"
 
   def term: Parser[Expression] = chainl1(factor, multDivMod ^^
     (op => (left: Expression, right: Expression) => ArithmeticOperation(left, op, right)))

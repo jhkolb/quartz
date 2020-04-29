@@ -148,6 +148,7 @@ case class Hash(payload: Seq[Expression]) extends Expression {
 
 sealed trait Assignable extends Expression {
   def rootName: String
+  def flatName: String
 }
 
 case class VarRef(name: String) extends Assignable {
@@ -157,6 +158,7 @@ case class VarRef(name: String) extends Assignable {
   }
 
   override val rootName: String = name
+  override val flatName: String = name
 }
 
 case class MappingRef(map: Expression, key: Expression) extends Assignable {
@@ -194,6 +196,8 @@ case class MappingRef(map: Expression, key: Expression) extends Assignable {
     case m: MappingRef => m.rootName
     case _ => throw new IllegalArgumentException("Invalid MappingRef")
   }
+
+  override def flatName: String = throw new NotImplementedError("flatName of MappingRef")
 }
 
 case class StructAccess(struct: Assignable, field: Assignable) extends Assignable {
@@ -230,6 +234,8 @@ case class StructAccess(struct: Assignable, field: Assignable) extends Assignabl
     case m: MappingRef => m.rootName
     case s: StructAccess => s.rootName
   }
+
+  override def flatName: String = s"${struct.flatName}_${field.flatName}"
 }
 
 sealed trait LogicalOperator
@@ -245,6 +251,7 @@ case object GreaterThanOrEqual extends Comparator
 sealed trait BooleanOperator extends LogicalOperator
 case object And extends BooleanOperator
 case object Or extends BooleanOperator
+case object Implies extends BooleanOperator
 
 sealed trait SequenceOperator extends LogicalOperator
 case object In extends SequenceOperator
@@ -260,6 +267,56 @@ case object Modulo extends ArithmeticOperator
 sealed trait LTLOperator
 case object Always extends LTLOperator
 case object Eventually extends LTLOperator
+
+sealed trait LTLExpression extends Expression
+
+case class LTLMax(body: Assignable) extends LTLExpression {
+  override protected def determineType(context: Context): Either[String, DataType] = body match {
+    case MappingRef(_, _) => Left(s"Cannot apply max to mapping entries")
+    case b => b.getType(context) match {
+      case l@Left(_) => l
+      case Right(IntVar) => Right(IntVar)
+      case Right(UnsignedIntVar) => Right(UnsignedIntVar)
+      case Right(Timespan) => Right(Timespan)
+      case Right(Timestamp) => Right(Timestamp)
+      case Right(ty) => Left(s"Cannot apply max to type $ty")
+    }
+  }
+}
+
+case class LTLMin(body: Assignable) extends LTLExpression {
+  override protected def determineType(context: Context): Either[String, DataType] = body match {
+    case MappingRef(_, _) => Left(s"Cannot apply min to mapping entries")
+    case b => b.getType(context) match {
+      case l@Left(_) => l
+      case Right(IntVar) => Right(IntVar)
+      case Right(UnsignedIntVar) => Right(UnsignedIntVar)
+      case Right(Timespan) => Right(Timespan)
+      case Right(Timestamp) => Right(Timestamp)
+      case Right(ty) => Left(s"Cannot apply min to type $ty")
+    }
+  }
+}
+
+case class LTLSum(body: Assignable) extends LTLExpression {
+  override protected def determineType(context: Context): Either[String, DataType] = body.getType(context) match {
+    case l@Left(_) => l
+
+    case Right(Sequence(elemType)) => elemType match {
+      case IntVar => Right(IntVar)
+      case UnsignedIntVar => Right(UnsignedIntVar)
+      case ty => Left(s"Cannot apply sum to type $ty")
+    }
+
+    case Right(Mapping(_, valueType)) => valueType match {
+      case IntVar => Right(IntVar)
+      case UnsignedIntVar => Right(UnsignedIntVar)
+      case ty => Left(s"Cannot apply sum to type $ty")
+    }
+
+    case ty => Left(s"Cannot apply sum to type $ty")
+  }
+}
 
 sealed trait Timespan extends Expression {
   override def determineType(context: Context): Either[String, DataType] = Right(Timespan)
@@ -320,7 +377,7 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
         case _ => Left(s"Cannot compare instances of unordered type $leftTy")
       }
 
-      case And | Or => leftTy match {
+      case And | Or | Implies => leftTy match {
         case Bool => rightTy match {
           case Bool => Right(Bool)
           case _ => Left(s"Cannot apply AND/OR to $rightTy")

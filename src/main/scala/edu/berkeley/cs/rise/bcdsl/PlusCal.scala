@@ -61,6 +61,10 @@ object PlusCal {
 
   private def writeField(field: Variable, structs: StructRegistry): String = s"${field.name} = ${writeZeroElement(field.ty, structs)}"
 
+  private def writeMaxVarName(assignable: Assignable): String = s"__max_${assignable.flatName}"
+
+  private def writeMinVarName(assignable: Assignable): String=  s"__min_${assignable.flatName}"
+
   private def writeApprovalVarName(transition: Transition, term: AuthTerm): String =
   // Only non-initial transitions can have authorization clause
     s"${transition.name}_${transition.authTermNames(term)}_approved"
@@ -167,6 +171,7 @@ object PlusCal {
         op match {
           case And => builder.append(" /\\ ")
           case Or => builder.append(" \\/ ")
+          case Implies => builder.append(" => ")
         }
 
 
@@ -222,6 +227,9 @@ object PlusCal {
       case Hour => "3600"
       case Day => "86400"
       case Week => "604800"
+      case LTLMax(body) => writeMaxVarName(body)
+      case LTLMin(body) => writeMinVarName(body)
+      case LTLSum(_) => throw new NotImplementedError("LTLSum")
 
       case ArithmeticOperation(left, op, right) =>
         val builder = new StringBuilder()
@@ -276,6 +284,7 @@ object PlusCal {
           case GreaterThan => builder.append(" > ")
           case And => builder.append(" /\\ ")
           case Or => builder.append(" \\/ ")
+          case Implies => builder.append(" => ")
           case In | NotIn => throw new IllegalArgumentException // This should never be reached
         }
 
@@ -315,7 +324,8 @@ object PlusCal {
     s"L$currentLabelIndex:"
   }
 
-  private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]]): String = {
+  private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]],
+                              maxVals: Set[Assignable], minVals: Set[Assignable]): String = {
     val builder = new StringBuilder()
     val effectiveParameters = Variable("sender", Identity) +: transition.parameters.getOrElse(Seq.empty[Variable])
     val paramsRepr = effectiveParameters.map(_.name).mkString(", ")
@@ -345,6 +355,7 @@ object PlusCal {
       if (t.destination != t.origin.get) {
         appendLine(builder, s"$CURRENT_STATE_VAR := ${t.destination.toUpperCase};")
       }
+      builder.append(writeTransitionMaxMinUpdates(t, maxVals, minVals))
       t.body.foreach(b => builder.append(writeTransitionBody(b)))
       appendLine(builder, "return;")
       indentationLevel -= 1
@@ -440,6 +451,7 @@ object PlusCal {
     if (transition.parameters.getOrElse(Seq.empty[Variable]).contains(Variable(s"${transition.name}_tokens", UnsignedIntVar))) {
       appendLine(builder, s"balance := balance + ${transition.name}_tokens;")
     }
+    builder.append(writeTransitionMaxMinUpdates(transition, maxVals, minVals))
     transition.body.foreach(b => builder.append(writeTransitionBody(b)))
 
     if (transition.origin.fold(false)(_ == transition.destination)) {
@@ -501,6 +513,68 @@ object PlusCal {
       // And don't forget the last statement!
       builder.append(writeStatement(body.last, ";"))
       builder.toString()
+  }
+
+  private def writeTransitionMaxMinUpdates(transition: Transition, maxVals: Set[Assignable], minVals: Set[Assignable]): String = {
+    val builder = new StringBuilder()
+
+    val paramNames = transition.parameters.fold(Set.empty[String])(_.map(_.name).toSet)
+    val effectiveMaxVals = maxVals.map {
+      case assignable@StructAccess(struct, field) => struct match {
+        case VarRef(structName) => field match {
+          case VarRef(fieldName) => if (paramNames.contains(s"${structName}_$fieldName")) {
+            VarRef(s"${structName}_$fieldName")
+          } else {
+            assignable
+          }
+
+          case _ => assignable
+        }
+
+        case _ => assignable
+      }
+
+      case a => a
+    }
+
+    val effectiveMinVals = minVals.map {
+      case assignable@StructAccess(struct, field) => struct match {
+        case VarRef(structName) => field match {
+          case VarRef(fieldName) => if (paramNames.contains(s"${structName}_$fieldName")) {
+            VarRef(s"${structName}_$fieldName")
+          } else {
+            assignable
+          }
+
+          case _ => assignable
+        }
+
+        case _ => assignable
+      }
+
+      case a => a
+    }
+    val paramVals = transition.parameters.fold(Seq.empty[Assignable])(_.map(p => VarRef(p.name)))
+
+    // Update any necessary maxVals or minVals
+    val modifiedVals = transition.body.fold(Seq.empty[Assignable])(_.collect { case Assignment(left, _) => left })
+    (paramVals ++ modifiedVals).foreach { assignable =>
+      if (effectiveMaxVals.contains(assignable)) {
+        appendLine(builder,s"if ${writeExpression(assignable)} > ${writeMaxVarName(assignable)} then")
+        indentationLevel += 1
+        appendLine(builder, s"${writeMaxVarName(assignable)} := ${writeExpression(assignable)}")
+        indentationLevel -= 1
+        appendLine(builder, "end if;")
+      } else if (effectiveMinVals.contains(assignable)) {
+        appendLine(builder, s"if ${writeExpression(assignable)} < ${writeMinVarName(assignable)} then")
+        indentationLevel += 1
+        appendLine(builder, s"${writeMinVarName(assignable)} := ${writeExpression(assignable)}")
+        indentationLevel -= 1
+        appendLine(builder, "end if;")
+      }
+    }
+
+    builder.toString()
   }
 
   // Systematically rename each transition's parameters to avoid collisions and facilitate expressive LTL
@@ -581,9 +655,12 @@ object PlusCal {
     indentationLevel -= 1
     appendLine(builder, "end with;")
     builder.append("MethodCall:\n")
-    appendLine(builder, "either")
-    indentationLevel += 1
+
     val nonInitialTransitions = stateMachine.transitions.filter(_.origin.isDefined)
+    if (nonInitialTransitions.length > 1 || useCall) {
+      appendLine(builder, "either")
+      indentationLevel += 1
+    }
     nonInitialTransitions.zipWithIndex.foreach { case (transition, i) =>
       transition.parameters.foreach { params =>
         appendLine(builder, writeTransitionArgumentSelection(params, stateMachine.structs))
@@ -605,14 +682,10 @@ object PlusCal {
       }
     }
 
-    if (!useCall) {
+    if (nonInitialTransitions.length > 1 || useCall) {
       indentationLevel -= 1
-      appendLine(builder, "or")
-      indentationLevel += 1
-      appendLine(builder, "call throw();")
+      appendLine(builder, "end either;")
     }
-    indentationLevel -= 1
-    appendLine(builder, "end either;")
     builder.append(nextLabel() + "\n")
     appendLine(builder, s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR - 1;")
     appendLine(builder, "return;")
@@ -663,7 +736,14 @@ object PlusCal {
   }
 
   def writeSpecification(specification: Specification, useCall: Boolean = false): String = specification match {
-    case Specification(name, StateMachine(structs, fields, transitions), _) =>
+    case Specification(name, StateMachine(structs, fields, transitions), invariants) =>
+      val (maxVals, minVals) = invariants.fold((Set.empty[Assignable], Set.empty[Assignable]))(
+        _.foldLeft((Set.empty[Assignable], Set.empty[Assignable])) { case ((prevMax, prevMin), prop) =>
+          val (currentMax, currentMin) = Specification.extractMaxMinTargets(prop)
+          (prevMax.union(currentMax), prevMin.union(currentMin))
+        }
+      )
+
       val stateMachine = StateMachine(structs, fields, transitions.map(mangleTransition))
       val initialState = stateMachine.transitions.filter(_.origin.isEmpty).head.destination
 
@@ -694,6 +774,13 @@ object PlusCal {
         appendLine(builder, s"${writeField(field, stateMachine.structs)};")
       }
 
+      maxVals.foreach { assignable =>
+        appendLine(builder, s"${writeMaxVarName(assignable)} = MIN_INT;")
+      }
+      minVals.foreach { assignable =>
+        appendLine(builder, s"${writeMinVarName(assignable)} = MAX_INT;")
+      }
+
       builder.append(writeStateStash(stateMachine))
       builder.append("\n")
 
@@ -703,8 +790,8 @@ object PlusCal {
         val originState = transition.origin.get
         autoTrans + (originState -> (autoTrans.getOrElse(originState, Seq.empty[Transition]) :+ transition))
       }
-      builder.append(writeTransition(initialTransition, autoTransitions))
-      standardTransitions.foreach(t => builder.append(writeTransition(t, autoTransitions)))
+      builder.append(writeTransition(initialTransition, autoTransitions, maxVals, minVals))
+      standardTransitions.foreach(t => builder.append(writeTransition(t, autoTransitions, maxVals, minVals)))
 
       builder.append(writeInvocationLoop(stateMachine, useCall))
       builder.append("\n")

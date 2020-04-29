@@ -55,4 +55,27 @@ object Specification {
   val CONSTRAINED_PARAMS: Map[String, DataType] = Map[String, DataType](
     "tokens" -> UnsignedIntVar,
   )
+
+  private def extractMaxMinTargets(expression: Expression): (Set[Assignable], Set[Assignable]) = expression match {
+    case LTLMax(body) => (Set(body), Set.empty[Assignable])
+    case LTLMin(body) => (Set.empty[Assignable], Set(body))
+
+    case LogicalOperation(left, _, right) =>
+      val (leftMax, leftMin) = extractMaxMinTargets(left)
+      val (rightMax, rightMin) = extractMaxMinTargets(right)
+      (leftMax.union(rightMax), leftMin.union(rightMin))
+
+    case ArithmeticOperation(left, _, right) =>
+      val (leftMax, leftMin) = extractMaxMinTargets(left)
+      val (rightMax, rightMin) = extractMaxMinTargets(right)
+      (leftMax.union(rightMax), leftMin.union(rightMin))
+
+    case _ => (Set.empty[Assignable], Set.empty[Assignable])
+  }
+
+  @scala.annotation.tailrec
+  private[bcdsl] def extractMaxMinTargets(prop: LTLProperty): (Set[Assignable], Set[Assignable]) = prop match {
+    case LTLProperty(_, Left(nestedProp)) => extractMaxMinTargets(nestedProp)
+    case LTLProperty(_, Right(exp)) => extractMaxMinTargets(exp)
+  }
 }

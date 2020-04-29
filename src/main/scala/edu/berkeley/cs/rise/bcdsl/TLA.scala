@@ -62,7 +62,7 @@ object TLA {
       }
 
       invariants.foreach(_.zipWithIndex.foreach { case (prop, i) =>
-        builder.append(s"__property_$i == ${writeLTLProperty(prop)}\n")
+        builder.append(s"__property_$i == ${writeLTLProperty(prop, specification.stateMachine.states)}\n")
       })
 
       // Write constraints on model checking domain
@@ -113,12 +113,9 @@ object TLA {
         "$1stack' = <<>>")
   }
 
-  private def writeLTLProperty(property: LTLProperty): String = property match {
-    case LTLProperty(op, Left(prop)) => s"${writeLTLOperator(op)}(${writeLTLProperty(prop)})"
-    case LTLProperty(op, Right(expr)) => expr match {
-      case VarRef(name) => s"${writeLTLOperator(op)}(__currentState = ${name.toUpperCase()})"
-      case _ => s"${writeLTLOperator(op)}(${writeExpression(expr)})"
-    }
+  private def writeLTLProperty(property: LTLProperty, stateNames: Set[String]): String = property match {
+    case LTLProperty(op, Left(prop)) => s"${writeLTLOperator(op)}(${writeLTLProperty(prop, stateNames)})"
+    case LTLProperty(op, Right(expr)) => s"${writeLTLOperator(op)}(${writeExpression(expr, stateNames)})"
   }
 
   private def writeLTLOperator(operator: LTLOperator): String = operator match {
@@ -127,29 +124,36 @@ object TLA {
   }
 
   // TODO deal with code duplication between this and PlusCal
-  private def writeExpression(expression: Expression): String =
+  private def writeExpression(expression: Expression, stateNames: Set[String]): String =
     expression match {
-      case VarRef(name) => RESERVED_NAME_TRANSLATIONS.getOrElse(name, name)
-      case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
-      case StructAccess(struct, field) => s"${writeExpression(struct)}.${writeExpression(field)}"
+      case VarRef(name) => if (stateNames.contains(name)) {
+        s"(__currentState = ${name.toUpperCase})"
+      } else {
+        RESERVED_NAME_TRANSLATIONS.getOrElse(name, name)
+      }
+      case MappingRef(map, key) => s"${writeExpression(map, stateNames)}[${writeExpression(key, stateNames)}]"
+      case StructAccess(struct, field) => s"${writeExpression(struct, stateNames)}.${writeExpression(field, stateNames)}"
       case IntConst(v) => v.toString
       case UnsignedIntConst(v) => v.toString
       case StringLiteral(s) => "\"" + s + "\""
       case BoolConst(b) => b.toString.toUpperCase
-      case Hash(payload) => payload.map(writeExpression).mkString("<<", ", ", ">>")
-      case SequenceSize(sequence) => s"Len(${writeExpression(sequence)})"
+      case Hash(payload) => payload.map(writeExpression(_, stateNames)).mkString("<<", ", ", ">>")
+      case SequenceSize(sequence) => s"Len(${writeExpression(sequence, stateNames)})"
       case Second => "1"
       case Minute => "60"
       case Hour => "3600"
       case Day => "86400"
       case Week => "604800"
+      case LTLMax(body) => s"__max_${body.flatName}"
+      case LTLMin(body) => s"__min_${body.flatName}"
+      case LTLSum(_) => throw new NotImplementedError("LTLSum")
 
       case ArithmeticOperation(left, op, right) =>
         val builder = new StringBuilder()
         left match {
-          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
-          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
-          case _ => builder.append(writeExpression(left))
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left, stateNames)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left, stateNames)})")
+          case _ => builder.append(writeExpression(left, stateNames))
         }
 
         op match {
@@ -161,9 +165,9 @@ object TLA {
         }
 
         right match {
-          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
-          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
-          case _ => builder.append(writeExpression(left))
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right, stateNames)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right, stateNames)})")
+          case _ => builder.append(writeExpression(left, stateNames))
         }
 
         builder.toString()
@@ -173,8 +177,8 @@ object TLA {
         if (op == NotIn) {
           builder.append("~(")
         }
-        builder.append(s"\\E x \\in DOMAIN ${writeExpression(sequence)}: ")
-        builder.append(s"${writeExpression(sequence)}[x] = ${writeExpression(element)}")
+        builder.append(s"\\E x \\in DOMAIN ${writeExpression(sequence, stateNames)}: ")
+        builder.append(s"${writeExpression(sequence, stateNames)}[x] = ${writeExpression(element, stateNames)}")
         if (op == NotIn) {
           builder.append(")")
         }
@@ -183,9 +187,9 @@ object TLA {
       case LogicalOperation(left, op, right) =>
         val builder = new StringBuilder()
         left match {
-          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
-          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left)})")
-          case _ => builder.append(writeExpression(left))
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(left, stateNames)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(left, stateNames)})")
+          case _ => builder.append(writeExpression(left, stateNames))
         }
 
         op match {
@@ -197,13 +201,14 @@ object TLA {
           case GreaterThan => builder.append(" > ")
           case And => builder.append(" /\\ ")
           case Or => builder.append(" \\/ ")
+          case Implies => builder.append(" => ")
           case In | NotIn => throw new IllegalArgumentException // This should never be reached
         }
 
         right match {
-          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
-          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right)})")
-          case _ => builder.append(writeExpression(right))
+          case ArithmeticOperation(_, _, _) => builder.append(s"(${writeExpression(right, stateNames)})")
+          case LogicalOperation(_, _, _) => builder.append(s"(${writeExpression(right, stateNames)})")
+          case _ => builder.append(writeExpression(right, stateNames))
         }
 
         builder.toString()
