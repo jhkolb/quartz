@@ -21,6 +21,17 @@ object PlusCal {
     "now" -> "__currentTime",
   )
 
+  private val TLA_SUM_OPERATORS =
+    """
+      |RECURSIVE SeqSum(_)
+      |SeqSum(S) == IF S = <<>> THEN 0 ELSE Head(S) + SeqSum(Tail(S))
+      |
+      |RECURSIVE MapSum(_)
+      |MapSum(M) == IF DOMAIN M = {} THEN 0 ELSE
+      |             LET x == CHOOSE x \in DOMAIN M: TRUE
+      |             IN M[x] + MapSum([ y \in  (DOMAIN M \ {x}) |-> M[y] ])
+      |""".stripMargin
+
   private def appendLine(builder: StringBuilder, line: String): Unit =
     builder.append(s"${INDENTATION_STR * indentationLevel}$line\n")
 
@@ -37,7 +48,7 @@ object PlusCal {
     case Timespan => "0..MAX_INT"
     case String => (1 to TLA.NUM_STRINGS).map(i => "\"" + s"str_${i.toString}" + "\"").mkString("{", ",", "}")
     case HashValue(payloadTypes) => payloadTypes.map(t => s"(${writeDomain(t, structs)})").mkString("(", " \\X ", ")")
-    case Mapping(keyType, valueType) => s"[ x \\in ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
+    case Mapping(keyType, valueType) => s"[ ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
     case Struct(name) => "[" + structs(name).map { case (name, ty) => s"$name: ${writeDomain(ty, structs)}" }.mkString(", ") + "]"
     case Sequence(elementType) => s"[ x \\in 1..MAX_INT -> ${writeDomain(elementType, structs)} ]"
   }
@@ -759,6 +770,9 @@ object PlusCal {
       val allIdentities = "ZERO_IDENT" +: 1.to(TLA.NUM_IDENTITIES).map(n => s"__ident$n")
       appendLine(builder, s"CONSTANTS ${allIdentities.mkString(", ")}")
       appendLine(builder, s"IDENTITIES == { ${allIdentities.mkString(", ")} }")
+      builder.append("\n")
+
+      builder.append(TLA_SUM_OPERATORS)
       builder.append("\n")
 
       appendLine(builder, s"(* --fair algorithm $name")

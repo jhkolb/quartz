@@ -146,7 +146,14 @@ object TLA {
       case Week => "604800"
       case LTLMax(body) => s"__max_${body.flatName}"
       case LTLMin(body) => s"__min_${body.flatName}"
-      case LTLSum(_) => throw new NotImplementedError("LTLSum")
+      case LTLSum(body) => body match {
+        case v @ VarRef(name) => v.determinedType match {
+          case Sequence(_) => s"SeqSum($name)"
+          case Mapping(_, _) => s"MapSum($name)"
+          case _ => throw new IllegalArgumentException
+        }
+        case _ => throw new IllegalArgumentException
+      }
 
       case ArithmeticOperation(left, op, right) =>
         val builder = new StringBuilder()

@@ -33,4 +33,5 @@ properties {
     [](balance >= 0)
     [](<>(closed))
     [](submitBid.tokens >= 0)
+    [](sum(Balances) > 0)
 }
