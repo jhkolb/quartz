@@ -660,11 +660,15 @@ object PlusCal {
     appendLine(builder, "end if;")
 
     appendLine(builder, s"$CALL_DEPTH_VAR := $CALL_DEPTH_VAR + 1;")
+    appendLine(builder, s"if $CALL_DEPTH_VAR < 2 then")
+    indentationLevel += 1
     appendLine(builder, "with __timeDelta \\in 1..MAX_TIMESTEP do")
     indentationLevel += 1
     appendLine(builder, s"$CURRENT_TIME_VAR := $CURRENT_TIME_VAR + __timeDelta;")
     indentationLevel -= 1
     appendLine(builder, "end with;")
+    indentationLevel -= 1
+    appendLine(builder, "end if;")
     builder.append("MethodCall:\n")
 
     val nonInitialTransitions = stateMachine.transitions.filter(_.origin.isDefined)
