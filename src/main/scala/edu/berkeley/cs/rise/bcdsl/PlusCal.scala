@@ -72,9 +72,9 @@ object PlusCal {
 
   private def writeField(field: Variable, structs: StructRegistry): String = s"${field.name} = ${writeZeroElement(field.ty, structs)}"
 
-  private def writeMaxVarName(assignable: Assignable): String = s"__max_${assignable.flatName}"
+  private def writeMaxVarName(assignable: Assignable): String = s"__max_${TLA.flattenName(assignable)}"
 
-  private def writeMinVarName(assignable: Assignable): String=  s"__min_${assignable.flatName}"
+  private def writeMinVarName(assignable: Assignable): String=  s"__min_${TLA.flattenName(assignable)}"
 
   private def writeApprovalVarName(transition: Transition, term: AuthTerm): String =
   // Only non-initial transitions can have authorization clause

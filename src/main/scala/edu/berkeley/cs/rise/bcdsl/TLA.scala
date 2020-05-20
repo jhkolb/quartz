@@ -123,6 +123,12 @@ object TLA {
     case Eventually => "<>"
   }
 
+  private[bcdsl] def flattenName(assignable: Assignable): String = assignable match {
+    case VarRef(name) => name
+    case MappingRef(map, key) => throw new NotImplementedError("flattenName(MappingRef")
+    case StructAccess(struct, field) => s"${flattenName(struct)}_${flattenName(field)}"
+  }
+
   // TODO deal with code duplication between this and PlusCal
   private def writeExpression(expression: Expression, stateNames: Set[String]): String =
     expression match {
@@ -144,8 +150,8 @@ object TLA {
       case Hour => "3600"
       case Day => "86400"
       case Week => "604800"
-      case LTLMax(body) => s"__max_${body.flatName}"
-      case LTLMin(body) => s"__min_${body.flatName}"
+      case LTLMax(body) => s"__max_${flattenName(body)}"
+      case LTLMin(body) => s"__min_${flattenName(body)}"
       case LTLSum(body) => body match {
         case v @ VarRef(name) => v.determinedType match {
           case Sequence(_) => s"SeqSum($name)"

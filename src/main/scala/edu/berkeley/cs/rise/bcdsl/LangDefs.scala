@@ -148,7 +148,6 @@ case class Hash(payload: Seq[Expression]) extends Expression {
 
 sealed trait Assignable extends Expression {
   def rootName: String
-  def flatName: String
 }
 
 case class VarRef(name: String) extends Assignable {
@@ -158,7 +157,6 @@ case class VarRef(name: String) extends Assignable {
   }
 
   override val rootName: String = name
-  override val flatName: String = name
 }
 
 case class MappingRef(map: Expression, key: Expression) extends Assignable {
@@ -196,8 +194,6 @@ case class MappingRef(map: Expression, key: Expression) extends Assignable {
     case m: MappingRef => m.rootName
     case _ => throw new IllegalArgumentException("Invalid MappingRef")
   }
-
-  override def flatName: String = throw new NotImplementedError("flatName of MappingRef")
 }
 
 case class StructAccess(struct: Assignable, field: Assignable) extends Assignable {
@@ -234,8 +230,6 @@ case class StructAccess(struct: Assignable, field: Assignable) extends Assignabl
     case m: MappingRef => m.rootName
     case s: StructAccess => s.rootName
   }
-
-  override def flatName: String = s"${struct.flatName}_${field.flatName}"
 }
 
 sealed trait LogicalOperator
