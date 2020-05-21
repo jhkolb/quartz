@@ -1,4 +1,4 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 object Solidity {
   private val SOLIDITY_VERSION: String = "0.5.7"
@@ -148,7 +148,7 @@ object Solidity {
   private def writeParameters(parameters: Seq[(Variable, Boolean)]): String =
     parameters.map { case (param, payable) => writeParameter(param, payable) }.mkString(", ")
 
-  private def writeStatement(statement: Statement, useCall:Boolean = false): String = statement match {
+  private def writeStatement(statement: Statement, useCall: Boolean = false): String = statement match {
     case Assignment(left, right) => writeLine(s"${writeExpression(left)} = ${writeExpression(right)};")
 
     case Send(destination, amount, source) =>

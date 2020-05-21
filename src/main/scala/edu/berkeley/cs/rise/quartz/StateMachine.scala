@@ -1,4 +1,4 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 case class Variable(name: String, ty: DataType)
 

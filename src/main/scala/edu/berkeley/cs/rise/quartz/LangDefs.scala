@@ -1,4 +1,4 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 sealed trait DataType
 case object Identity extends DataType
@@ -374,9 +374,9 @@ case class LogicalOperation(left: Expression, operator: LogicalOperator, right: 
       case And | Or | Implies => leftTy match {
         case Bool => rightTy match {
           case Bool => Right(Bool)
-          case _ => Left(s"Cannot apply AND/OR to $rightTy")
+          case _ => Left(s"Cannot apply AND/OR/Implies to $rightTy")
         }
-        case _ => Left(s"Cannot apply AND/OR to $leftTy")
+        case _ => Left(s"Cannot apply AND/OR/Implies to $leftTy")
       }
 
       case In | NotIn => rightTy match {

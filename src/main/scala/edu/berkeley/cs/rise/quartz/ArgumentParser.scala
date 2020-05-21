@@ -1,4 +1,4 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 object ArgumentParser {
   case class Config(

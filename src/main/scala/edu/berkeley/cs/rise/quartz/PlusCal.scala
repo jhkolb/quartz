@@ -1,12 +1,12 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 object PlusCal {
 
   private val INDENTATION_STR = "    "
   private val BUILT_IN_CONSTANTS = Seq("MAX_INT, MIN_INT, MAX_TIMESTEP", "MAX_ELAPSED_TIME", "MAX_CALL_DEPTH")
   private val CONTRACT_BALANCE_VAR = "balance"
-  private[bcdsl] val CALL_DEPTH_VAR = "__contractCallDepth"
-  private[bcdsl] val CURRENT_TIME_VAR = "__currentTime"
+  private[quartz] val CALL_DEPTH_VAR = "__contractCallDepth"
+  private[quartz] val CURRENT_TIME_VAR = "__currentTime"
   private val CURRENT_STATE_VAR = "__currentState"
   private val STATE_STASH_VAR = "__stateStash"
 

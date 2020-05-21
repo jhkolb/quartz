@@ -1,4 +1,4 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 import java.io.File
 import java.nio.file.Files
@@ -29,8 +29,8 @@ object TLA {
   )
 
   // TODO make these user-visible configuration parameters
-  private[bcdsl] val NUM_IDENTITIES = 3
-  private[bcdsl] val NUM_STRINGS = 1
+  private[quartz] val NUM_IDENTITIES = 3
+  private[quartz] val NUM_STRINGS = 1
 
   private def mangleName(name: String): String = "__" + name.toLowerCase
 
@@ -123,7 +123,7 @@ object TLA {
     case Eventually => "<>"
   }
 
-  private[bcdsl] def flattenName(assignable: Assignable): String = assignable match {
+  private[quartz] def flattenName(assignable: Assignable): String = assignable match {
     case VarRef(name) => name
     case MappingRef(map, key) => throw new NotImplementedError("flattenName(MappingRef")
     case StructAccess(struct, field) => s"${flattenName(struct)}_${flattenName(field)}"

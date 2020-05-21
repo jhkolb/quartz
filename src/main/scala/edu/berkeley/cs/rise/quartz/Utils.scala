@@ -1,8 +1,8 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 import java.io.{File, IOException, PrintWriter}
 
-private[bcdsl] object Utils {
+private[quartz] object Utils {
   def writeStringToFile(file: File, body: String): Unit = {
     val writer = new PrintWriter(file, "UTF-8")
     try {

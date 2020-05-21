@@ -1,4 +1,4 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 case class Specification(name: String, stateMachine: StateMachine, invariants: Option[Seq[LTLProperty]]) {
   // For now, this just verifies that all referenced variables are well defined
@@ -74,7 +74,7 @@ object Specification {
   }
 
   @scala.annotation.tailrec
-  private[bcdsl] def extractMaxMinTargets(prop: LTLProperty): (Set[Assignable], Set[Assignable]) = prop match {
+  private[quartz] def extractMaxMinTargets(prop: LTLProperty): (Set[Assignable], Set[Assignable]) = prop match {
     case LTLProperty(_, Left(nestedProp)) => extractMaxMinTargets(nestedProp)
     case LTLProperty(_, Right(exp)) => extractMaxMinTargets(exp)
   }

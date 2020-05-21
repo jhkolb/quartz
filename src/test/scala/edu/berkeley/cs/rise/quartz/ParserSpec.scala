@@ -1,4 +1,4 @@
-package edu.berkeley.cs.rise.bcdsl
+package edu.berkeley.cs.rise.quartz
 
 import java.io.{File, PrintWriter}
 import java.nio.charset.StandardCharsets
