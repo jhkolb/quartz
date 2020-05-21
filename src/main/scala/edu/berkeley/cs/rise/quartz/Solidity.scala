@@ -184,7 +184,7 @@ object Solidity {
       writeLine(s"delete ${writeExpression(sequence)};")
   }
 
-  private def writeTransition(transition: Transition, autoTransitions: Map[String, Seq[Transition]], useCall: Boolean = false): String = {
+  private def writeTransition(transition: Transition, useCall: Boolean = false): String = {
     val builder = new StringBuilder()
 
     val paramsRepr = transition.parameters.fold("") { params =>
@@ -210,27 +210,6 @@ object Solidity {
     transition.origin.foreach { o =>
       appendLine(builder, s"require($CURRENT_STATE_VAR == State.$o);")
     }
-
-    // These transitions are all distinct from the current transition, but we need to interpose them
-    val outgoingAutoTransitions = transition.origin.flatMap(autoTransitions.get)
-    outgoingAutoTransitions.foreach(_.filter(_ != transition).zipWithIndex.foreach { case (t, idx) =>
-      val g = t.guard.get // Auto transitions must have a guard
-      if (idx == 0) {
-        appendLine(builder, s"if (${writeExpression(g)}) {")
-      } else {
-        appendLine(builder, s"else if (${writeExpression(g)}) {")
-      }
-      indentationLevel += 1
-
-      if (t.destination != t.origin.get) {
-        appendLine(builder, s"$CURRENT_STATE_VAR = State.${t.destination};")
-      }
-      t.body.foreach(_.foreach(s => builder.append(writeStatement(s, useCall))))
-
-      appendLine(builder, "return;")
-      indentationLevel -= 1
-      appendLine(builder, "}")
-    })
 
     transition.guard.foreach { g =>
       appendLine(builder, s"require(${writeExpression(g)});")
@@ -490,11 +469,6 @@ object Solidity {
       appendLine(builder, s"contract $name {")
       indentationLevel += 1
 
-      val autoTransitions = stateMachine.transitions.filter(_.auto).foldLeft(Map.empty[String, Seq[Transition]]) { (autoTrans, transition) =>
-        val originState = transition.origin.get
-        autoTrans + (originState -> (autoTrans.getOrElse(originState, Seq.empty[Transition]) :+ transition))
-      }
-
       val payableFields = extractPayableVars(stateMachine.flattenStatements, stateMachine.fields.map(_.name).toSet)
 
       stateMachine.structs.foreach { case (name, fields) => builder.append(writeStructDefinition(name, fields)) }
@@ -512,7 +486,7 @@ object Solidity {
       builder.append(writeAuthorizationFields(stateMachine))
       builder.append("\n")
 
-      stateMachine.transitions foreach { t => builder.append(writeTransition(t, autoTransitions, useCall)) }
+      stateMachine.transitions foreach { t => builder.append(writeTransition(t, useCall)) }
       extractAllMembershipTypes(stateMachine).foreach(ty => builder.append(writeSequenceContainsTest(ty) + "\n"))
       builder.append("\n")
 

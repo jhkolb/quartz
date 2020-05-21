@@ -23,7 +23,7 @@ contract Auction2 {
         HighestBid = tokens
     }
 
-    auto closeAuction: open -> closed requires [ now - AuctionStart >= Duration ]
+    closeAuction: open -> closed requires [ now - AuctionStart >= Duration ]
 
     withdraw: closed -> closed requires [ Balances[sender] > 0 ] {
         send Balances[sender] to sender

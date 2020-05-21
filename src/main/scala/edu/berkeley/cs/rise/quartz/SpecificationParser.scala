@@ -138,9 +138,9 @@ object SpecificationParser extends JavaTokenParsers {
 
   def transitionBody: Parser[Seq[Statement]] = "{" ~> rep1(statement) <~ "}"
 
-  def transition: Parser[Transition] = opt("auto") ~ ident ~ ":" ~ stateChange ~ opt(authAnnotation) ~
-    opt(guardAnnotation) ~ opt(transitionBody) ^^ { case autoStmt ~ name ~ ":" ~ ((origin, parameters, destination)) ~ auth ~ guard ~ body =>
-    Transition(name, origin, destination, parameters, auth, autoStmt.isDefined, guard, body)
+  def transition: Parser[Transition] = ident ~ ":" ~ stateChange ~ opt(authAnnotation) ~
+    opt(guardAnnotation) ~ opt(transitionBody) ^^ { case name ~ ":" ~ ((origin, parameters, destination)) ~ auth ~ guard ~ body =>
+    Transition(name, origin, destination, parameters, auth, guard, body)
   }
 
   def stateMachine: Parser[StateMachine] = rep(structDecl) ~ fieldList ~ rep(transition) ^^ { case structs ~ fields ~ transitions =>

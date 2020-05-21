@@ -27,7 +27,7 @@ contract Auction {
         HighestBid = tokens
     }
 
-    auto closeAuction: open -> closed requires [ now - AuctionStart >= Duration ]
+    closeAuction: open -> closed requires [ now - AuctionStart >= Duration ]
 
     redeem: closed -> closed
     authorized [ Seller ] {

@@ -26,7 +26,7 @@ contract Auction3 {
         send Balances[sender] to sender consuming Balances[sender]
     }
 
-    auto closeAuction: open -> closed requires [ now - AuctionStart >= Duration ]
+    closeAuction: open -> closed requires [ now - AuctionStart >= Duration ]
 }
 
 properties {

@@ -3,7 +3,7 @@ package edu.berkeley.cs.rise.quartz
 case class Variable(name: String, ty: DataType)
 
 case class Transition(name: String, origin: Option[String], destination: String, parameters: Option[Seq[Variable]],
-                      authorized: Option[AuthExpression], auto: Boolean, guard: Option[Expression], body: Option[Seq[Statement]]) {
+                      authorized: Option[AuthExpression], guard: Option[Expression], body: Option[Seq[Statement]]) {
   val description: String = s"$name: '${origin.getOrElse("")}' -> '$destination'"
 
   private def makeTypeErrMsg(idx: scala.Int, msg: String): String =
@@ -51,15 +51,6 @@ case class Transition(name: String, origin: Option[String], destination: String,
     }.headOption
     if (nameError.isDefined) {
       return nameError
-    }
-
-    // Check that transition is not designated as automatic but has an authorization restriction
-    if (auto && authorized.isDefined) {
-      return Some(s"Automatic transition $description cannot have authorization restriction")
-    }
-    // Check that transition is not designated as automatic but lacks a guard
-    if (auto && guard.isEmpty) {
-      return Some(s"Automatic transition $description lacks a guard")
     }
 
     val localContext = Context(context.structs, context.variables ++ paramsMap)
@@ -142,10 +133,6 @@ case class StateMachine(structs: Map[String, Map[String, DataType]], fields: Seq
     // The initial transition cannot have an authorization requirement
     if (initialTransitions.head.authorized.isDefined) {
       return Some("Initial transition cannot have an authorization restriction")
-    }
-    // Nor can it be designated as an auto transition
-    if (initialTransitions.head.auto) {
-      return Some("Initial transition cannot be designated as automatic")
     }
 
     val initialState = initialTransitions.head.destination
