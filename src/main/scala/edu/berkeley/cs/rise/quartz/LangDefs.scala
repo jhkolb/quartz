@@ -159,7 +159,7 @@ case class VarRef(name: String) extends Assignable {
   override val rootName: String = name
 }
 
-case class MappingRef(map: Expression, key: Expression) extends Assignable {
+case class MappingRef(map: Assignable, key: Expression) extends Assignable {
   override def determineType(context: Context): Either[String, DataType] = map.getType(context) match {
     case Left(msg) => Left(s"Invalid mapping type: $msg")
 

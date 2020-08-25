@@ -1,4 +1,4 @@
-name := "bcDsl2"
+name := "quartz"
 
 version := "0.1"
 

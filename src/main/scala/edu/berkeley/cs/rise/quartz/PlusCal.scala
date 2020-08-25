@@ -609,7 +609,7 @@ object PlusCal {
         v
       }
       case MappingRef(map, key) =>
-        MappingRef(mangleExpression(map, transition), mangleExpression(key, transition))
+        MappingRef(mangleAssignable(map, transition), mangleExpression(key, transition))
       case StructAccess(struct, field) =>
         StructAccess(mangleAssignable(struct, transition), mangleAssignable(field, transition))
     }
