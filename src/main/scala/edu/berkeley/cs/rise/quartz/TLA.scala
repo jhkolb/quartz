@@ -126,7 +126,7 @@ object TLA {
   private[quartz] def flattenName(assignable: Assignable): String = assignable match {
     case VarRef(name) => name
     case MappingRef(map, key) => throw new NotImplementedError("flattenName(MappingRef")
-    case StructAccess(struct, field) => s"${flattenName(struct)}_${flattenName(field)}"
+    case StructAccess(struct, field) => s"${flattenName(struct)}_$field"
   }
 
   // TODO deal with code duplication between this and PlusCal
@@ -138,7 +138,7 @@ object TLA {
         RESERVED_NAME_TRANSLATIONS.getOrElse(name, name)
       }
       case MappingRef(map, key) => s"${writeExpression(map, stateNames)}[${writeExpression(key, stateNames)}]"
-      case StructAccess(struct, field) => s"${writeExpression(struct, stateNames)}.${writeExpression(field, stateNames)}"
+      case StructAccess(struct, field) => s"${writeExpression(struct, stateNames)}.$field"
       case IntConst(v) => v.toString
       case UnsignedIntConst(v) => v.toString
       case StringLiteral(s) => "\"" + s + "\""

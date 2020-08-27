@@ -196,29 +196,15 @@ case class MappingRef(map: Assignable, key: Expression) extends Assignable {
   }
 }
 
-case class StructAccess(struct: Assignable, field: Assignable) extends Assignable {
+case class StructAccess(struct: Assignable, field: String) extends Assignable {
   override protected def determineType(context: Context): Either[String, DataType] = {
     struct.getType(context) match {
       case Left(msg) => Left(s"Invalid struct type: $msg")
       case Right(Struct(structName)) => context.structs.get(structName) match {
         case None => Left(s"Struct type $structName undefined")
-        case Some(structFields) => field match {
-          case VarRef(name) => structFields.get(name) match {
-            case None => Left(s"Struct type $structName has no field $name")
-            case Some(ty) => Right(ty)
-          }
-
-          case m@MappingRef(_, _) => structFields.get(m.rootName) match {
-            case None => Left(s"Struct type $structName has no field ${m.rootName}")
-            // Note that if the struct contains a field name already defined in the original context,
-            // the field's name-type binding will have higher precedence
-            case Some(_) =>
-              val augmentedVars = context.variables ++ structFields
-              m.getType(Context(context.structs, augmentedVars))
-          }
-
-          // This should never happen as the "." operator is left associative
-          case _: StructAccess => throw new IllegalArgumentException("Malformed struct reference")
+        case Some(structFields) => structFields.get(field) match {
+          case None => Left(s"Struct type $structName has no field $field")
+          case Some(ty) => Right(ty)
         }
       }
       case Right(ty) => Left(s"Cannot access field of non struct type $ty")

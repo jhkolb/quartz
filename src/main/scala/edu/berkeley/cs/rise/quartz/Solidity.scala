@@ -62,7 +62,7 @@ object Solidity {
     expression match {
       case VarRef(name) => builder.append(RESERVED_NAME_TRANSLATIONS.getOrElse(name, name))
       case MappingRef(map, key) => builder.append(s"${writeExpression(map)}[${writeExpression(key)}]")
-      case StructAccess(struct, fieldName) => builder.append(s"${writeExpression(struct)}.${writeExpression(fieldName)}")
+      case StructAccess(struct, fieldName) => builder.append(s"${writeExpression(struct)}.$fieldName")
       case IntConst(v) => builder.append(v)
       case UnsignedIntConst(v) => builder.append(v)
       case StringLiteral(s) => builder.append("\"" + s + "\"")

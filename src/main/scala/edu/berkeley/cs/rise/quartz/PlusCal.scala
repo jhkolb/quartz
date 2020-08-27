@@ -226,7 +226,7 @@ object PlusCal {
     expression match {
       case VarRef(name) => RESERVED_NAME_TRANSLATIONS.getOrElse(name, name)
       case MappingRef(map, key) => s"${writeExpression(map)}[${writeExpression(key)}]"
-      case StructAccess(struct, field) => s"${writeExpression(struct)}.${writeExpression(field)}"
+      case StructAccess(struct, field) => s"${writeExpression(struct)}.$field"
       case IntConst(v) => v.toString
       case UnsignedIntConst(v) => v.toString
       case StringLiteral(s) => "\"" + s + "\""
@@ -508,33 +508,24 @@ object PlusCal {
 
     val paramNames = transition.parameters.fold(Set.empty[String])(_.map(_.name).toSet)
     val effectiveMaxVals = maxVals.map {
-      case assignable@StructAccess(struct, field) => struct match {
-        case VarRef(structName) => field match {
-          case VarRef(fieldName) => if (paramNames.contains(s"${structName}_$fieldName")) {
-            VarRef(s"${structName}_$fieldName")
-          } else {
-            assignable
-          }
-
-          case _ => assignable
+      case assignable@StructAccess(struct, fieldName) => struct match {
+        case VarRef(structName) => if (paramNames.contains(s"${structName}_$fieldName")) {
+          VarRef(s"${structName}_$fieldName")
+        } else {
+          assignable
         }
 
         case _ => assignable
       }
-
       case a => a
     }
 
     val effectiveMinVals = minVals.map {
-      case assignable@StructAccess(struct, field) => struct match {
-        case VarRef(structName) => field match {
-          case VarRef(fieldName) => if (paramNames.contains(s"${structName}_$fieldName")) {
-            VarRef(s"${structName}_$fieldName")
-          } else {
-            assignable
-          }
-
-          case _ => assignable
+      case assignable@StructAccess(struct, fieldName) => struct match {
+        case VarRef(structName) => if (paramNames.contains(s"${structName}_$fieldName")) {
+          VarRef(s"${structName}_$fieldName")
+        } else {
+          assignable
         }
 
         case _ => assignable
@@ -611,7 +602,7 @@ object PlusCal {
       case MappingRef(map, key) =>
         MappingRef(mangleAssignable(map, transition), mangleExpression(key, transition))
       case StructAccess(struct, field) =>
-        StructAccess(mangleAssignable(struct, transition), mangleAssignable(field, transition))
+        StructAccess(mangleAssignable(struct, transition), field)
     }
   }
 

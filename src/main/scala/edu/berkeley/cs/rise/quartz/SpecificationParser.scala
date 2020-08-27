@@ -23,13 +23,6 @@ object SpecificationParser extends JavaTokenParsers {
 
   def variableDecl: Parser[Variable] = ident ~ ":" ~ dataTypeDecl ^^ { case name ~ ":" ~ ty => Variable(name, ty) }
 
-  // TODO this could probably be cleaner...
-  // Assumes that any mappingRef starts with an identifier
-  def mappingRef: Parser[MappingRef] = ident ~ rep1("[" ~> logicalExpression <~ "]") ^^ {
-    case root ~ (keyExpr :: keyExprs) => keyExprs.foldLeft(MappingRef(VarRef(root), keyExpr)) { (ref, ke) => MappingRef(ref, ke) }
-    case _ ~ Nil => throw new IllegalStateException("rep1 combinator in 'mappingRef' yielded empty list")
-  }
-
   def fieldList: Parser[Seq[Variable]] = "data" ~ "{" ~> rep(variableDecl) <~ "}"
 
   def valueDecl: Parser[Expression] = "true" ^^^ BoolConst(true) |
@@ -49,14 +42,24 @@ object SpecificationParser extends JavaTokenParsers {
     (name, fields.map(f => f.name -> f.ty).toMap)
   }
 
-  def structAccessElem: Parser[Assignable] = mappingRef | ident ^^ VarRef
+  private case class FieldAccess(fieldName: String)
+  private case class KeyAccess(key: Expression)
+  def structMapRef: Parser[Assignable] = ident ~ rep1("." ~> ident ^^ FieldAccess | "[" ~> expression <~ "]" ^^ KeyAccess) ^^ { case root ~ elems =>
+    val rootReference = elems.head match {
+      case FieldAccess(fieldName) => StructAccess(VarRef(root), fieldName)
+      case KeyAccess(key: Expression) => MappingRef(VarRef(root), key)
+    }
 
-  def structAccess: Parser[StructAccess] = structAccessElem ~ "." ~ rep1sep(structAccessElem, ".") ^^ { case first ~ "." ~ rest =>
-    val root = StructAccess(first, rest.head)
-    rest.tail.foldLeft(root)((current, elem) => StructAccess(current, elem))
+    elems.tail match {
+      case Nil =>  rootReference
+      case rest => rest.foldLeft(rootReference) { (prev, item) => item match {
+        case FieldAccess(fieldName) => StructAccess(prev, fieldName)
+        case KeyAccess(key) => MappingRef(prev, key)
+      }}
+    }
   }
 
-  def assignable: Parser[Assignable] = structAccess | mappingRef | ident ^^ VarRef
+  def assignable: Parser[Assignable] = structMapRef | ident ^^ VarRef
 
   def multDivMod: Parser[ArithmeticOperator] = "*" ^^^ Multiply | "/" ^^^ Divide | "%" ^^^ Modulo
 
