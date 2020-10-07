@@ -1,0 +1,27 @@
+contract Conditional {
+  data {
+    x: Uint
+  }
+
+  t1: ->(y: Uint) open {
+    x = y
+  }
+
+  t2: open ->(y: Uint) open {
+    if (y < 4) {
+      x = y
+      x = x - 8
+    } else {
+      x = x - 15
+    }
+    x = 16
+  }
+
+  t3: open -> (z: Uint) open {
+    if (z == 23) {
+      x = 42
+    }
+
+    x = 108
+  }
+}

@@ -1,0 +1,39 @@
+contract Auction {
+    data {
+      Seller: Identity
+      HighestBidder: Identity
+      HighestBid: Uint
+      AuctionStart: Timestamp
+      Duration: Timespan
+    }
+
+    initialize: ->(duration: Timespan) open {
+        Seller = sender
+        HighestBid = 0
+        AuctionStart = now
+        Duration = duration
+    }
+
+    submitBid: open ->(tokens: Uint) open
+    requires [ tokens > HighestBid ] {
+        if (HighestBid > 0) {
+            send HighestBid to HighestBidder
+        }
+        HighestBidder = sender
+        HighestBid = tokens
+    }
+
+    closeAuction: open -> closed requires [ now - AuctionStart >= Duration ]
+
+    redeem: closed -> closed
+    authorized [ Seller ] {
+        sendAndConsume HighestBid to Seller
+    }
+}
+
+properties {
+    [](balance >= 0)
+    [](<>(closed))
+    [](max(submitBid.tokens) > 0)
+    [](closed => HighestBid >= max(submitBid.tokens))
+}

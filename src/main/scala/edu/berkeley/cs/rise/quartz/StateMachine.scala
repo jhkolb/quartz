@@ -86,13 +86,7 @@ case class Transition(name: String, origin: Option[String], destination: String,
   }
 
   def flattenExpressions(): Seq[Expression] = {
-    val bodyExpressions = body.fold(Seq.empty[Expression])(_.flatMap {
-      case Assignment(left, right) => Seq(left, right)
-      case SequenceAppend(sequence, element) => Seq(sequence, element)
-      case SequenceClear(sequence) => Seq(sequence)
-      case Send(dest, amount, Some(source)) => Seq(dest, amount, source)
-      case Send(dest, amount, None) => Seq(dest, amount)
-    })
+    val bodyExpressions = body.fold(Seq.empty[Expression])(_.flatMap(_.extractExpressions))
     guard.fold(bodyExpressions)(_ +: bodyExpressions)
   }
 }

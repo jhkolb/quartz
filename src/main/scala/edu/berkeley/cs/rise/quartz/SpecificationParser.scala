@@ -130,7 +130,15 @@ object SpecificationParser extends JavaTokenParsers {
 
   def sequenceClear: Parser[SequenceClear] = "clear" ~> assignable ^^ SequenceClear
 
-  def statement: Parser[Statement] = assignment | send | sendAndConsume | sequenceAddition | sequenceClear
+  def ifArm: Parser[(Expression, Seq[Statement])] = "if" ~ "(" ~> logicalExpression ~ ")" ~ "{" ~ rep1(statement) <~ "}" ^^
+    { case expr ~ ")" ~ "{" ~ stmts => (expr, stmts) }
+
+  def elseArm: Parser[Seq[Statement]] = "else" ~ "{" ~> rep1(statement) <~ "}"
+
+  def conditional: Parser[Conditional] = ifArm ~ opt(elseArm) ^^ { case (condition, ifBody) ~
+    elseBody => Conditional(condition, ifBody, elseBody) }
+
+  def statement: Parser[Statement] = conditional | assignment | send | sendAndConsume | sequenceAddition | sequenceClear
 
   def parameterList: Parser[Seq[Variable]] = "(" ~> rep1sep(variableDecl, ",") <~ ")"
 

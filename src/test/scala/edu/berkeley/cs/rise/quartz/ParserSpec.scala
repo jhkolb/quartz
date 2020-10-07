@@ -86,6 +86,11 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
     testSpecification(spec)
   }
 
+  test("Auction with conditional statement") {
+    val spec = parseFile("auctionConditional.qtz")
+    testSpecification(spec)
+  }
+
   test("Simple multi-signature wallet") {
     val spec = parseFile("simpleMultiSig.qtz")
     testSpecification(spec)
@@ -174,5 +179,10 @@ class ParserSpec extends FunSuite with BeforeAndAfterAll {
   test("Unnecessary Assignment") {
     val spec = parseFile("unnecessaryAssignment.qtz")
     testSpecification(spec, errorExpected = true)
+  }
+
+  test("Simple Conditionals") {
+    val spec = parseFile("conditional.qtz")
+    testSpecification(spec)
   }
 }

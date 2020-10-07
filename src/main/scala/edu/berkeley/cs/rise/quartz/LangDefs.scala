@@ -543,6 +543,8 @@ case class AuthCombination(left: AuthExpression, operator: BooleanOperator, righ
 
 sealed trait Statement {
   def validate(context: Context): Option[String]
+
+  def extractExpressions: Seq[Expression]
 }
 
 case class Assignment(left: Assignable, right: Expression) extends Statement {
@@ -578,6 +580,8 @@ case class Assignment(left: Assignable, right: Expression) extends Statement {
 
     result.left.toOption
   }
+
+  override def extractExpressions = Seq(left, right)
 }
 
 case class Send(destination: Expression, amount: Expression, source: Option[Assignable]) extends Statement {
@@ -599,6 +603,9 @@ case class Send(destination: Expression, amount: Expression, source: Option[Assi
 
     result.left.toOption
   }
+
+  override def extractExpressions: Seq[Expression] =
+    source.fold(Seq(destination, amount))(src => Seq(destination, amount, src))
 }
 
 case class SequenceAppend(sequence: Assignable, element: Expression) extends Statement {
@@ -615,6 +622,8 @@ case class SequenceAppend(sequence: Assignable, element: Expression) extends Sta
 
     result.left.toOption
   }
+
+  override def extractExpressions: Seq[Expression] = Seq(sequence, element)
 }
 
 case class SequenceClear(sequence: Assignable) extends Statement {
@@ -623,4 +632,17 @@ case class SequenceClear(sequence: Assignable) extends Statement {
     case Right(Sequence(_)) => None
     case Right(t) => Some(s"Cannot clean non sequence type $t")
   }
+
+  override def extractExpressions: Seq[Expression] = Seq(sequence)
+}
+
+case class Conditional(condition: Expression, ifArm: Seq[Statement], elseArm: Option[Seq[Statement]]) extends Statement {
+  override def validate(context: Context): Option[String] = condition.getType(context) match {
+    case Left(err) => Some(err)
+    case Right(Bool) => None
+    case Right(t) => Some(s"Expected branch condition of type boolean but found $t")
+  }
+
+  override def extractExpressions: Seq[Expression] = Seq(condition) ++ ifArm.flatMap(_.extractExpressions) ++
+    elseArm.fold(Seq.empty[Expression])(_.flatMap(_.extractExpressions))
 }

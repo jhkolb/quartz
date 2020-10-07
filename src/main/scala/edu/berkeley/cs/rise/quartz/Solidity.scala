@@ -182,6 +182,22 @@ object Solidity {
 
     case SequenceClear(sequence) =>
       writeLine(s"delete ${writeExpression(sequence)};")
+
+    case Conditional(condition, ifArm, elseArm) =>
+      val builder = new StringBuilder()
+      appendLine(builder, s"if (${writeExpression(condition)}) {")
+      indentationLevel += 1
+      ifArm.foreach(stmt => builder.append(writeStatement(stmt, useCall)))
+      indentationLevel -= 1
+      elseArm.foreach { stmts =>
+        appendLine(builder, "} else {")
+        indentationLevel += 1
+        stmts.foreach(stmt => builder.append(writeStatement(stmt, useCall)))
+        indentationLevel -= 1
+      }
+      appendLine(builder, "}")
+
+      builder.toString()
   }
 
   private def writeTransition(transition: Transition, useCall: Boolean = false): String = {
@@ -203,7 +219,7 @@ object Solidity {
     if (transition.origin.isDefined) {
       appendLine(builder, s"function ${transition.name}($paramsRepr) public $payable{")
     } else {
-      appendLine(builder, s"constructor($paramsRepr) public $payable{")
+      appendLine(builder, s"constructor($paramsRepr) $payable{")
     }
     indentationLevel += 1
 
