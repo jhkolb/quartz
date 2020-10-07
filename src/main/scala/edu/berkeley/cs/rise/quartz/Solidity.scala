@@ -8,7 +8,7 @@ object Solidity {
   private val PARAM_HASH_PLACEHOLDER = "0"
   private val RESERVED_NAME_TRANSLATIONS: Map[String, String] = Map[String, String](
     "balance" -> "balance",
-    "now" -> "now",
+    "now" -> "block.timestamp",
     "sender" -> "msg.sender",
     "tokens" -> "msg.value",
   )
