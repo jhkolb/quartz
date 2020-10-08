@@ -1,0 +1,19 @@
+contract Field {
+  data {
+    A: Identity
+    B: Identity
+    C: Identity
+  }
+
+  initialize: -> open {
+    send 0 to A
+  }
+
+  test1: open -> open {
+    B = A
+  }
+
+  test2: open -> open {
+    C = B
+  }
+}

@@ -1,0 +1,18 @@
+contract Param {
+  data {
+    A: Identity
+    B: Identity
+  }
+
+  initialize: ->(id: Identity) open {
+    A = id
+  }
+
+  test1: open -> open {
+    B = A
+  }
+
+  test2: open ->(id: Identity) open {
+    B = id
+  }
+}
