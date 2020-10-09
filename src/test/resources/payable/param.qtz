@@ -6,10 +6,11 @@ contract Param {
 
   initialize: ->(id: Identity) open {
     A = id
+    A = B
   }
 
   test1: open -> open {
-    B = A
+    send 0 to A
   }
 
   test2: open ->(id: Identity) open {

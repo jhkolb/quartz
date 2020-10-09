@@ -6,7 +6,7 @@ contract Field {
   }
 
   initialize: -> open {
-    B = A
+    A = B
   }
 
   test1: open -> open {
@@ -14,6 +14,6 @@ contract Field {
   }
 
   test2: open -> open {
-    C = B
+    B = C
   }
 }
