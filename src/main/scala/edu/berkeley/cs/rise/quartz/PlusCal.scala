@@ -47,7 +47,10 @@ object PlusCal {
     case Timestamp => "0..MAX_INT"
     case Timespan => "0..MAX_INT"
     case String => (1 to TLA.NUM_STRINGS).map(i => "\"" + s"str_${i.toString}" + "\"").mkString("{", ",", "}")
-    case HashValue(payloadTypes) => payloadTypes.map(t => s"(${writeDomain(t, structs)})").mkString("(", " \\X ", ")")
+    case HashValue(payloadTypes) => payloadTypes match {
+      case Seq(t) => s"[ {1} -> (${writeDomain(t, structs)}) ]"
+      case _ => payloadTypes.map(t => s"(${writeDomain(t, structs)})").mkString("(", " \\X ", ")")
+    }
     case Mapping(keyType, valueType) => s"[ ${writeDomain(keyType, structs)} -> ${writeDomain(valueType, structs)} ]"
     case Struct(name) => "[" + structs(name).map { case (name, ty) => s"$name: ${writeDomain(ty, structs)}" }.mkString(", ") + "]"
     case Sequence(elementType) => s"[ x \\in 1..MAX_INT -> ${writeDomain(elementType, structs)} ]"
@@ -616,6 +619,7 @@ object PlusCal {
     case LogicalOperation(left, operator, right) =>
       LogicalOperation(mangleExpression(left, transition), operator, mangleExpression(right, transition))
     case SequenceSize(sequence) => SequenceSize(mangleExpression(sequence, transition))
+    case Hash(payload) => Hash(payload.map(mangleExpression(_, transition)))
     case a: Assignable => mangleAssignable(a, transition)
     case _ => e
   }
