@@ -200,7 +200,7 @@ object Solidity {
       builder.toString()
   }
 
-  private def writeTransition(transition: Transition, useCall: Boolean = false): String = {
+  private def writeTransition(transition: Transition, useCall: Boolean = false, payableFields: Set[String]): String = {
     val builder = new StringBuilder()
 
     val paramsRepr = transition.parameters.fold("") { params =>
@@ -210,7 +210,7 @@ object Solidity {
       var setSize = payableParams.size
       do {
         setSize = payableParams.size
-        payableParams = extractPayableVars(transition.body.getOrElse(Seq.empty[Statement]), effectiveParams.map(_.name).toSet, payableParams)
+        payableParams = extractPayableParams(transition.body.getOrElse(Seq.empty[Statement]), effectiveParams.map(_.name).toSet, payableFields, payableParams)
       } while (payableParams.size != setSize);
       writeParameters(effectiveParams.zip(effectiveParams.map(p => payableParams.contains(p.name))))
     }
@@ -512,7 +512,7 @@ object Solidity {
       builder.append(writeAuthorizationFields(stateMachine))
       builder.append("\n")
 
-      stateMachine.transitions foreach { t => builder.append(writeTransition(t, useCall)) }
+      stateMachine.transitions foreach { t => builder.append(writeTransition(t, useCall, payableFields)) }
       extractAllMembershipTypes(stateMachine).foreach(ty => builder.append(writeSequenceContainsTest(ty) + "\n"))
       builder.append("\n")
 
@@ -581,7 +581,23 @@ object Solidity {
     val names = statements.foldLeft(payableSet) { (current, statement) =>
       statement match {
         case Send(destination, _, _) => current.union(extractVarNames(destination))
-        case Assignment(left, right) if current.contains(extractVarNames(right).toSeq(0)) => current.union(extractVarNames(left))
+        case Assignment(left, right) if current.contains(extractVarNames(left).toSeq(0)) => current.union(extractVarNames(right))
+        case _ => current
+      }
+    }
+
+    if (scope.nonEmpty) {
+      names.intersect(scope)
+    } else {
+      names
+    }
+  }
+
+  private def extractPayableParams(statements: Seq[Statement], scope: Set[String] = Set.empty[String], payableFields: Set[String], payableParams: Set[String]): Set[String] = {
+    val names = statements.foldLeft(payableParams) { (current, statement) =>
+      statement match {
+        case Send(destination, _, _) => current.union(extractVarNames(destination))
+        case Assignment(left, right) if payableFields.contains(extractVarNames(left).toSeq(0)) || current.contains(extractVarNames(left).toSeq(0)) => current.union(extractVarNames(right))
         case _ => current
       }
     }
