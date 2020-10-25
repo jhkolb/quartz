@@ -206,7 +206,12 @@ object Solidity {
     val paramsRepr = transition.parameters.fold("") { params =>
       // Remove parameters that are used in the original source but are built in to Solidity
       val effectiveParams = params.filter(p => !BUILTIN_PARAMS.contains(p.name))
-      val payableParams = extractPayableVars(transition.body.getOrElse(Seq.empty[Statement]), effectiveParams.map(_.name).toSet)
+      var payableParams : Set[String] = Set.empty[String]
+      var setSize = payableParams.size
+      do {
+        setSize = payableParams.size
+        payableParams = extractPayableVars(transition.body.getOrElse(Seq.empty[Statement]), effectiveParams.map(_.name).toSet, payableParams)
+      } while (payableParams.size != setSize);
       writeParameters(effectiveParams.zip(effectiveParams.map(p => payableParams.contains(p.name))))
     }
 
@@ -485,7 +490,12 @@ object Solidity {
       appendLine(builder, s"contract $name {")
       indentationLevel += 1
 
-      val payableFields = extractPayableVars(stateMachine.flattenStatements, stateMachine.fields.map(_.name).toSet)
+      var payableFields : Set[String] = Set.empty[String]
+      var fieldSize = 0
+      do {
+        fieldSize = payableFields.size
+        payableFields = extractPayableVars(stateMachine.flattenStatements, stateMachine.fields.map(_.name).toSet, payableFields)
+      } while (payableFields.size != fieldSize)
 
       stateMachine.structs.foreach { case (name, fields) => builder.append(writeStructDefinition(name, fields)) }
 
@@ -567,10 +577,11 @@ object Solidity {
     case _ => Set.empty[String]
   }
 
-  private def extractPayableVars(statements: Seq[Statement], scope: Set[String] = Set.empty[String]): Set[String] = {
-    val names = statements.foldLeft(Set.empty[String]) { (current, statement) =>
+  private def extractPayableVars(statements: Seq[Statement], scope: Set[String] = Set.empty[String], payableSet: Set[String]): Set[String] = {
+    val names = statements.foldLeft(payableSet) { (current, statement) =>
       statement match {
         case Send(destination, _, _) => current.union(extractVarNames(destination))
+        case Assignment(left, right) if current.contains(extractVarNames(right).toSeq(0)) => current.union(extractVarNames(left))
         case _ => current
       }
     }
