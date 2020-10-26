@@ -34,7 +34,7 @@ object Solidity {
       case Bool => "bool"
       case Timespan => "uint"
       case HashValue(_) => "bytes32"
-      case Mapping(keyType, valueType) => s"mapping(${writeType(keyType, payable)} => ${writeType(valueType, payable)})"
+      case Mapping(keyType, valueType) => s"mapping(${writeType(keyType, false)} => ${writeType(valueType, payable)})"
       case Sequence(elementType) => s"${writeType(elementType, payable)}[]"
       case Struct(name) => name
     }
