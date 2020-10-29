@@ -39,13 +39,12 @@ object Solidity {
       case Struct(name) => name
     }
 
-  private def writeStructDefinition(name: String, fields: Map[String, DataType], payableFields: Set[String]): String = {
+  private def writeStructDefinition(name: String, fields: Map[String, DataType], payableFields: Set[(String, String)]): String = {
     val builder = new StringBuilder()
     appendLine(builder, s"struct $name {")
-
     indentationLevel += 1
-    fields.foreach { case (fName, fTy) =>
-      appendLine(builder, s"${writeType(fTy, payable = payableFields.contains(fName))} $fName;")
+    fields.foreach { case (fName, fTy) => println("HERE: ", name, fName, fTy);
+      appendLine(builder, s"${writeType(fTy, payable = payableFields.contains((name, fName)))} $fName;")
     }
     indentationLevel -= 1
     appendLine(builder, "}")
@@ -199,19 +198,14 @@ object Solidity {
       builder.toString()
   }
 
-  private def writeTransition(transition: Transition, useCall: Boolean = false, payableFields: Set[String]): String = {
+  private def writeTransition(transition: Transition, useCall: Boolean = false, payableParams: Set[(String, String)]): String = {
     val builder = new StringBuilder()
 
     val paramsRepr = transition.parameters.fold("") { params =>
       // Remove parameters that are used in the original source but are built in to Solidity
       val effectiveParams = params.filter(p => !BUILTIN_PARAMS.contains(p.name))
-      var payableParams : Set[String] = Set.empty[String]
-      var setSize = payableParams.size
-      do {
-        setSize = payableParams.size
-        payableParams = extractPayableParams(transition.body.getOrElse(Seq.empty[Statement]), effectiveParams.map(_.name).toSet, payableFields, payableParams)
-      } while (payableParams.size != setSize);
-      writeParameters(effectiveParams.zip(effectiveParams.map(p => payableParams.contains(p.name))))
+      val payables = payableParams.filter(_._1.equals(transition.name)).map(_._2)
+      writeParameters(effectiveParams.zip(effectiveParams.map(p => payables.contains(p.name))))
     }
 
     val payable = if (transition.parameters.getOrElse(Seq.empty[Variable]).exists(_.name == "tokens")) {
@@ -489,21 +483,15 @@ object Solidity {
       appendLine(builder, s"contract $name {")
       indentationLevel += 1
 
-      var payableFields : Set[String] = Set.empty[String]
-      var fieldSize = 0
-      do {
-        fieldSize = payableFields.size
-        payableFields = extractPayableVars(stateMachine.flattenStatements, stateMachine.fields.map(_.name).toSet, payableFields)
-      } while (payableFields.size != fieldSize)
+      var (fields, params, structFields) = PayableExtractor.extractPayableVars(stateMachine)
 
-      var payableStructFields: Set[String] = Set.empty[String]
-      fieldSize = 0
+      var payableStructFields: Set[(String, String)] = Set.empty[(String, String)]
+      var fieldSize = 0
       do {
         fieldSize = payableStructFields.size
         // TODO: There should probably be context here instead of an empty set? (stateMachine.structs?)
-        payableStructFields = extractPayableVars(stateMachine.flattenStatements, Set.empty[String], payableStructFields)
+        payableStructFields = extractStructPayableVars(stateMachine.flattenStatements, Set.empty[(String, String)], fields, payableStructFields)
       } while (payableStructFields.size != fieldSize)
-      println(payableStructFields)
       stateMachine.structs.foreach { case (name, fields) => builder.append(writeStructDefinition(name, fields, payableStructFields)) }
 
       appendLine(builder, "enum State {")
@@ -514,12 +502,12 @@ object Solidity {
       indentationLevel -= 1
       appendLine(builder, "}")
 
-      stateMachine.fields.foreach(f => appendLine(builder, writeField(f, payableFields.contains(f.name)) + ";"))
+      stateMachine.fields.foreach(f => appendLine(builder, writeField(f, fields.contains(f.name)) + ";"))
       appendLine(builder, s"State public $CURRENT_STATE_VAR;")
       builder.append(writeAuthorizationFields(stateMachine))
       builder.append("\n")
 
-      stateMachine.transitions foreach { t => builder.append(writeTransition(t, useCall, payableFields)) }
+      stateMachine.transitions foreach { t => builder.append(writeTransition(t, useCall, params)) }
       extractAllMembershipTypes(stateMachine).foreach(ty => builder.append(writeSequenceContainsTest(ty) + "\n"))
       builder.append("\n")
 
@@ -575,38 +563,16 @@ object Solidity {
     }
   }
 
-  private def extractVarNames(expression: Expression): Set[String] = expression match {
-    case MappingRef(map, key) => extractVarNames(map) ++ extractVarNames(key)
-    case VarRef(name) => Set(name)
-    case LogicalOperation(left, _, right) => extractVarNames(left) ++ extractVarNames(right)
-    case ArithmeticOperation(left, _, right) => extractVarNames(left) ++ extractVarNames(right)
-    case SequenceSize(sequence) => extractVarNames(sequence)
-    case StructAccess(_, field) => Set(field)
-    case _ => Set.empty[String]
+  private def extractStructType(expression: Expression): String = expression match {
+    case StructAccess(struct, field) if struct.isInstanceOf[StructAccess] => field
+    case StructAccess(struct, _) if struct.isInstanceOf[VarRef] => struct.determinedType.toString().substring("Struct(".length, struct.determinedType.toString().length-1)
+    case _ => null
   }
 
-  private def extractPayableVars(statements: Seq[Statement], scope: Set[String] = Set.empty[String], payableSet: Set[String]): Set[String] = {
-    val names = statements.foldLeft(payableSet) { (current, statement) =>
-      println(statement)
+  private def extractStructPayableVars(statements: Seq[Statement], scope: Set[(String, String)] = Set.empty[(String, String)], payableFields: Set[String], payableStructSet: Set[(String, String)]): Set[(String, String)] = {
+    val names = statements.foldLeft(payableStructSet) { (current, statement) =>
       statement match {
-        case Send(destination, _, _) => current.union(extractVarNames(destination))
-        case Assignment(left, right) if current.contains(extractVarNames(left).toSeq(0)) => current.union(extractVarNames(right))
-        case _ => current
-      }
-    }
-
-    if (scope.nonEmpty) {
-      names.intersect(scope)
-    } else {
-      names
-    }
-  }
-
-  private def extractPayableParams(statements: Seq[Statement], scope: Set[String] = Set.empty[String], payableFields: Set[String], payableParams: Set[String]): Set[String] = {
-    val names = statements.foldLeft(payableParams) { (current, statement) =>
-      statement match {
-        case Send(destination, _, _) => current.union(extractVarNames(destination))
-        case Assignment(left, right) if payableFields.contains(extractVarNames(left).toSeq(0)) || current.contains(extractVarNames(left).toSeq(0)) => current.union(extractVarNames(right))
+        case Send(destination, _, _) if destination.isInstanceOf[StructAccess] => current.union(Set((extractStructType(destination), destination.asInstanceOf[StructAccess].field)))
         case _ => current
       }
     }
