@@ -43,7 +43,7 @@ object Solidity {
     val builder = new StringBuilder()
     appendLine(builder, s"struct $name {")
     indentationLevel += 1
-    fields.foreach { case (fName, fTy) => println("HERE: ", name, fName, fTy);
+    fields.foreach { case (fName, fTy) =>
       appendLine(builder, s"${writeType(fTy, payable = payableFields.contains((name, fName)))} $fName;")
     }
     indentationLevel -= 1
@@ -485,14 +485,7 @@ object Solidity {
 
       var (fields, params, structFields) = PayableExtractor.extractPayableVars(stateMachine)
 
-      var payableStructFields: Set[(String, String)] = Set.empty[(String, String)]
-      var fieldSize = 0
-      do {
-        fieldSize = payableStructFields.size
-        // TODO: There should probably be context here instead of an empty set? (stateMachine.structs?)
-        payableStructFields = extractStructPayableVars(stateMachine.flattenStatements, Set.empty[(String, String)], fields, payableStructFields)
-      } while (payableStructFields.size != fieldSize)
-      stateMachine.structs.foreach { case (name, fields) => builder.append(writeStructDefinition(name, fields, payableStructFields)) }
+      stateMachine.structs.foreach { case (name, fields) => builder.append(writeStructDefinition(name, fields, structFields)) }
 
       appendLine(builder, "enum State {")
       indentationLevel += 1
@@ -560,27 +553,6 @@ object Solidity {
       expressionChecks + Identity
     } else {
       expressionChecks
-    }
-  }
-
-  private def extractStructType(expression: Expression): String = expression match {
-    case StructAccess(struct, field) if struct.isInstanceOf[StructAccess] => field
-    case StructAccess(struct, _) if struct.isInstanceOf[VarRef] => struct.determinedType.toString().substring("Struct(".length, struct.determinedType.toString().length-1)
-    case _ => null
-  }
-
-  private def extractStructPayableVars(statements: Seq[Statement], scope: Set[(String, String)] = Set.empty[(String, String)], payableFields: Set[String], payableStructSet: Set[(String, String)]): Set[(String, String)] = {
-    val names = statements.foldLeft(payableStructSet) { (current, statement) =>
-      statement match {
-        case Send(destination, _, _) if destination.isInstanceOf[StructAccess] => current.union(Set((extractStructType(destination), destination.asInstanceOf[StructAccess].field)))
-        case _ => current
-      }
-    }
-
-    if (scope.nonEmpty) {
-      names.intersect(scope)
-    } else {
-      names
     }
   }
 }

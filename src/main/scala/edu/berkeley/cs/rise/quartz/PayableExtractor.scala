@@ -13,17 +13,44 @@ object PayableExtractor {
     var previousSize = fields.size
     do {
       previousSize = fields.size
-      extractPayableFields(stateMachine.flattenStatements, stateMachine.fields.map(_.name).toSet)
+      extractPayableFields(flattenStatements(stateMachine), stateMachine.fields.map(_.name).toSet)
     } while (previousSize != fields.size)
 
-    println("FIELDS: " + fields)
+//    println("FIELDS: " + fields)
 
     // Determine Payable Params w/ Fix Point Iteration
     stateMachine.transitions foreach { transition => extractPayableParams(transition) }
 
-    println("PARAMS: " + params)
+//    println("PARAMS: " + params)
+
+    previousSize = structFields.size
+    do {
+      previousSize = structFields.size
+      extractPayableStruct(flattenStatements(stateMachine))
+    } while (previousSize != structFields.size)
+
+//    println("STRUCTS: " + structFields)
 
     return (fields, params, structFields)
+  }
+
+  private def extractPayableStruct(statements: Seq[Statement]): Unit = {
+    structFields = statements.foldLeft(structFields) { (current, statement) =>
+      statement match {
+        case Send(destination, _, _) if destination.isInstanceOf[StructAccess] =>
+          current.union(Set((getStructType(destination), destination.asInstanceOf[StructAccess].field)))
+        case _ => current
+      }
+    }
+  }
+
+  private def getStructType(expression: Expression): String = expression match {
+    // TODO: How to figure out data type of field for first case?
+    // TODO: How to handle Mappings, Sequences
+    case StructAccess(struct, _) if struct.isInstanceOf[StructAccess] => struct.asInstanceOf[StructAccess].field
+    case StructAccess(struct, _) if struct.isInstanceOf[VarRef] =>
+      struct.determinedType.toString.substring("Wrapper".length, struct.determinedType.toString.length-1)
+    case _ => ""
   }
 
   private def extractPayableParams(transition: Transition) = {
@@ -63,4 +90,6 @@ object PayableExtractor {
     case SequenceSize(sequence) => extractHelper(sequence)
     case _ => ""
   }
+
+  private def flattenStatements(stateMachine: StateMachine): Seq[Statement] = stateMachine.transitions.flatMap(_.body.getOrElse(Seq.empty[Statement]))
 }

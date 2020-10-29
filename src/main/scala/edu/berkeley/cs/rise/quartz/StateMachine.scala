@@ -154,8 +154,6 @@ case class StateMachine(structs: Map[String, Map[String, DataType]], fields: Seq
   }
 
   def flattenExpressions: Seq[Expression] = transitions.flatMap(_.flattenExpressions())
-
-  def flattenStatements: Seq[Statement] = transitions.flatMap(_.body.getOrElse(Seq.empty[Statement]))
 }
 
 object StateMachine {
