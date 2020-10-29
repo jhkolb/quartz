@@ -23,33 +23,44 @@ object PayableExtractor {
 
 //    println("PARAMS: " + params)
 
+    val structMap = stateMachine.fields.filter(p => p.ty.isInstanceOf[Struct])
+      .map(variable => variable.name -> variable.ty).toMap
     previousSize = structFields.size
     do {
       previousSize = structFields.size
-      extractPayableStruct(flattenStatements(stateMachine))
+      extractPayableStruct(flattenStatements(stateMachine), structMap)
     } while (previousSize != structFields.size)
 
-//    println("STRUCTS: " + structFields)
+    println("STRUCTS: " + structFields)
 
     return (fields, params, structFields)
   }
 
-  private def extractPayableStruct(statements: Seq[Statement]): Unit = {
+  private def extractPayableStruct(statements: Seq[Statement], structMap: Map[String, DataType]): Unit = {
     structFields = statements.foldLeft(structFields) { (current, statement) =>
+      println(statement)
       statement match {
         case Send(destination, _, _) if destination.isInstanceOf[StructAccess] =>
-          current.union(Set((getStructType(destination), destination.asInstanceOf[StructAccess].field)))
+          current.union(Set((getStructType(destination, structMap), destination.asInstanceOf[StructAccess].field)))
         case _ => current
       }
     }
   }
 
-  private def getStructType(expression: Expression): String = expression match {
+  private def getStructType(expression: Expression, structMap: Map[String, DataType]): String = expression match {
     // TODO: How to figure out data type of field for first case?
     // TODO: How to handle Mappings, Sequences
-    case StructAccess(struct, _) if struct.isInstanceOf[StructAccess] => struct.asInstanceOf[StructAccess].field
+    case StructAccess(struct, _) if struct.isInstanceOf[StructAccess] => {
+//      val varName = struct.asInstanceOf[StructAccess].field
+//      var rootStruct =
+//      while (struct.isInstanceOf[StructAccess]) {
+//        struct = struct.asInstanceOf[StructAccess].struct
+//      }
+//      println(struct.rootName)
+      struct.asInstanceOf[StructAccess].field
+    }
     case StructAccess(struct, _) if struct.isInstanceOf[VarRef] =>
-      struct.determinedType.toString.substring("Wrapper".length, struct.determinedType.toString.length-1)
+      struct.determinedType.toString.stripPrefix("Wrapper(").stripSuffix(")")
     case _ => ""
   }
 
