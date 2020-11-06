@@ -1,0 +1,31 @@
+contract Struct {
+    struct Wrapper1 {
+        payee: Identity
+    }
+
+    struct Wrapper2 {
+        map: Mapping[Identity, Wrapper1]
+        map2: Mapping[Identity, Identity]
+    }
+
+    struct Wrapper3 {
+        seq: Sequence[Wrapper1]
+    }
+
+    struct Wrapper4 {
+        payeeMap: Wrapper2
+        payeeSeq: Wrapper3
+    }
+
+    data {
+        wrap2: Wrapper2
+        wrap3: Wrapper3
+        wrap4: Wrapper4
+    }
+
+    initialize: ->(id: Identity) open {
+        send 0 to wrap2.map[id].payee
+        send 0 to wrap2.map2[id]
+        send 0 to wrap4.payeeMap.map[id].payee
+    }
+}
