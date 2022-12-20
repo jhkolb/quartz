@@ -1,0 +1,24 @@
+contract Struct {
+    struct Wrapper {
+        payee: Identity
+        payee2: Identity
+    }
+
+    data {
+        wrap: Wrapper
+        A: Identity
+    }
+
+    initialize: -> open {
+        A = wrap.payee
+    }
+
+    test1: open -> open {
+        send 0 to A
+    }
+
+    test2: open ->(id: Identity) open {
+        wrap.payee2 = id
+        send 0 to wrap.payee2
+    }
+}

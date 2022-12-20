@@ -34,19 +34,17 @@ object Solidity {
       case Bool => "bool"
       case Timespan => "uint"
       case HashValue(_) => "bytes32"
-      case Mapping(keyType, valueType) => s"mapping(${writeType(keyType, payable)} => ${writeType(valueType, payable)})"
+      case Mapping(keyType, valueType) => s"mapping(${writeType(keyType, false)} => ${writeType(valueType, payable)})"
       case Sequence(elementType) => s"${writeType(elementType, payable)}[]"
       case Struct(name) => name
     }
 
-  private def writeStructDefinition(name: String, fields: Map[String, DataType]): String = {
+  private def writeStructDefinition(name: String, fields: Map[String, DataType], payableFields: Set[(String, String)]): String = {
     val builder = new StringBuilder()
     appendLine(builder, s"struct $name {")
-
     indentationLevel += 1
     fields.foreach { case (fName, fTy) =>
-      // TODO Determine when field must be marked payable
-      appendLine(builder, s"${writeType(fTy, payable = false)} $fName;")
+      appendLine(builder, s"${writeType(fTy, payable = payableFields.contains((name, fName)))} $fName;")
     }
     indentationLevel -= 1
     appendLine(builder, "}")
@@ -200,14 +198,14 @@ object Solidity {
       builder.toString()
   }
 
-  private def writeTransition(transition: Transition, useCall: Boolean = false): String = {
+  private def writeTransition(transition: Transition, useCall: Boolean = false, payableParams: Set[(String, String)]): String = {
     val builder = new StringBuilder()
 
     val paramsRepr = transition.parameters.fold("") { params =>
       // Remove parameters that are used in the original source but are built in to Solidity
       val effectiveParams = params.filter(p => !BUILTIN_PARAMS.contains(p.name))
-      val payableParams = extractPayableVars(transition.body.getOrElse(Seq.empty[Statement]), effectiveParams.map(_.name).toSet)
-      writeParameters(effectiveParams.zip(effectiveParams.map(p => payableParams.contains(p.name))))
+      val payables = payableParams.filter(_._1.equals(transition.name)).map(_._2)
+      writeParameters(effectiveParams.zip(effectiveParams.map(p => payables.contains(p.name))))
     }
 
     val payable = if (transition.parameters.getOrElse(Seq.empty[Variable]).exists(_.name == "tokens")) {
@@ -485,9 +483,9 @@ object Solidity {
       appendLine(builder, s"contract $name {")
       indentationLevel += 1
 
-      val payableFields = extractPayableVars(stateMachine.flattenStatements, stateMachine.fields.map(_.name).toSet)
+      var (fields, params, structFields) = PayableExtractor.extractPayableVars(stateMachine)
 
-      stateMachine.structs.foreach { case (name, fields) => builder.append(writeStructDefinition(name, fields)) }
+      stateMachine.structs.foreach { case (name, fields) => builder.append(writeStructDefinition(name, fields, structFields)) }
 
       appendLine(builder, "enum State {")
       indentationLevel += 1
@@ -497,12 +495,12 @@ object Solidity {
       indentationLevel -= 1
       appendLine(builder, "}")
 
-      stateMachine.fields.foreach(f => appendLine(builder, writeField(f, payableFields.contains(f.name)) + ";"))
+      stateMachine.fields.foreach(f => appendLine(builder, writeField(f, fields.contains(f.name)) + ";"))
       appendLine(builder, s"State public $CURRENT_STATE_VAR;")
       builder.append(writeAuthorizationFields(stateMachine))
       builder.append("\n")
 
-      stateMachine.transitions foreach { t => builder.append(writeTransition(t, useCall)) }
+      stateMachine.transitions foreach { t => builder.append(writeTransition(t, useCall, params)) }
       extractAllMembershipTypes(stateMachine).foreach(ty => builder.append(writeSequenceContainsTest(ty) + "\n"))
       builder.append("\n")
 
@@ -555,30 +553,6 @@ object Solidity {
       expressionChecks + Identity
     } else {
       expressionChecks
-    }
-  }
-
-  private def extractVarNames(expression: Expression): Set[String] = expression match {
-    case MappingRef(map, key) => extractVarNames(map) ++ extractVarNames(key)
-    case VarRef(name) => Set(name)
-    case LogicalOperation(left, _, right) => extractVarNames(left) ++ extractVarNames(right)
-    case ArithmeticOperation(left, _, right) => extractVarNames(left) ++ extractVarNames(right)
-    case SequenceSize(sequence) => extractVarNames(sequence)
-    case _ => Set.empty[String]
-  }
-
-  private def extractPayableVars(statements: Seq[Statement], scope: Set[String] = Set.empty[String]): Set[String] = {
-    val names = statements.foldLeft(Set.empty[String]) { (current, statement) =>
-      statement match {
-        case Send(destination, _, _) => current.union(extractVarNames(destination))
-        case _ => current
-      }
-    }
-
-    if (scope.nonEmpty) {
-      names.intersect(scope)
-    } else {
-      names
     }
   }
 }

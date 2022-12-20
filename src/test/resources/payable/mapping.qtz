@@ -1,0 +1,14 @@
+contract Mapping {
+  data {
+    Map1: Mapping[Uint, Identity]
+    Map2: Mapping[Identity, Identity]
+  }
+
+  initialize: ->(id: Uint) open {
+    send 0 to Map1[id]
+  }
+
+  test1: open ->(id: Identity) open {
+    send 0 to Map2[id]
+  }
+}
